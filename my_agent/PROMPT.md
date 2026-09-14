@@ -729,3 +729,48 @@ Provide:
 1. The updated python code for the `upload` and `delete` routes in `app.py`.
 2. The exact contents for the new `Dockerfile`.
 3. The exact contents for the new `.dockerignore`.
+
+# Role & Context
+Act as a Senior Python Backend Developer. We are upgrading our Flask + Telegram + Gemini (RAG) bot to support 2-way image processing (Multimodal). 
+The bot must be able to:
+1. Receive images from users, download them from Telegram, and pass them to the Gemini 1.5 model.
+2. Send predefined local images to the user based on the LLM's decision using a regex tagging system in the output.
+
+# Instructions
+
+### 1. Handling User Incoming Images (Webhook in `app.py` or `bot.py`)
+- Update the Telegram webhook route.
+- If the incoming message contains a `photo` (an array of photo sizes), grab the highest resolution photo (the last element).
+- Extract the `file_id`.
+- Use the Telegram API `getFile` endpoint to get the `file_path`.
+- Download the image bytes using `https://api.telegram.org/file/bot<TOKEN>/<file_path>`.
+- Pass these image bytes (along with any text `caption` or prompt) to the AI Agent.
+
+### 2. Upgrading the AI Agent to Multimodal (`agent.py`)
+- Import `PIL.Image` and `io`.
+- Modify the AI generation function to accept an optional `image_bytes` parameter.
+- If `image_bytes` is provided, convert it to a PIL Image using `Image.open(io.BytesIO(image_bytes))` and pass both the text prompt and the image object to the Gemini model.
+- **CRITICAL - Update the System Prompt:** Inject this exact instruction into the Gemini System Prompt:
+  """
+  Kamu memiliki akses ke gambar lokal yang bisa dikirimkan ke pengguna. Jika relevan, tambahkan tag eksak di akhir jawabanmu:
+  1. Jika pengguna menanyakan daftar harga, pricelist, harga token, atau harga paket data, tambahkan tag: [GAMBAR: daftar_harga.jpg]
+  2. Jika pengguna menanyakan promo, diskon, atau penawaran spesial, tambahkan tag: [GAMBAR: promo_pulsa.jpg]
+  Jangan pernah mengarang nama gambar selain dua nama di atas.
+  """
+
+### 3. Parsing and Sending Images (The "Postman" Logic)
+- Before sending the final AI response back to Telegram via the `sendMessage` function, parse the text.
+- Use RegEx (e.g., `import re`) to find the pattern `\[GAMBAR:\s*(.+?)\]`.
+- If found:
+  1. Extract the filename.
+  2. Remove the tag entirely from the text string so the user doesn't see it.
+  3. Send the cleaned text to the user using Telegram's `sendMessage`.
+  4. Send the physical image from the local directory `static/bot_images/<filename>` using Telegram's `sendPhoto` endpoint with `multipart/form-data`.
+- If not found, simply send the text normally.
+
+# Output Requirement
+Provide the completely updated python code blocks for:
+1. The Telegram webhook/receiving logic.
+2. The sending function containing the Regex parser and `sendPhoto` logic.
+3. The AI Agent function supporting multimodal inputs and the updated system prompt.
+Remind me to add any new dependencies (like Pillow or requests) to my requirements.

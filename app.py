@@ -18,6 +18,7 @@
 
 import io
 import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -1002,6 +1003,26 @@ WEBHOOK_OFFLINE_MESSAGE = (
     "Silakan hubungi kami kembali nanti."
 )
 
+# Folder gambar lokal yang bisa dikirim bot ke pengguna (via sendPhoto).
+# LLM hanya "menyebut" nama file lewat tag [GAMBAR: x] — Flask yang
+# benar-benar mengirimkan filenya (lihat _send_agent_reply / Postman).
+BOT_IMAGES_DIR = BASE_DIR / "static" / "bot_images"
+
+# Whitelist pola nama gambar — defensif terhadap path traversal:
+# LLM tidak akan pernah bisa menyuruh Flask mengirim file di luar folder ini.
+SAFE_IMAGE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+\.(jpg|jpeg|png)$", re.IGNORECASE)
+IMAGE_TAG_RE = re.compile(r"\[GAMBAR:\s*(.+?)\]")
+
+# Aturan tag gambar — diinjeksi ke system instruction Gemini.
+# (Sinkron dengan IMAGE_RULES di my_agent/agent.py)
+IMAGE_RULES = """
+ATURAN MENGGAMBAR (WAJIB):
+Kamu memiliki akses ke gambar lokal yang bisa dikirimkan ke pengguna. Jika relevan, tambahkan tag eksak di akhir jawabanmu:
+1. Jika pengguna menanyakan daftar harga, pricelist, harga token, atau harga paket data, tambahkan tag: [GAMBAR: daftar_harga.jpg]
+2. Jika pengguna menanyakan promo, diskon, atau penawaran spesial, tambahkan tag: [GAMBAR: promo_pulsa.jpg]
+Jangan pernah mengarang nama gambar selain dua nama di atas.
+"""
+
 # Aturan pendamping prompt — port dari bot.py (pulsa) & bot_cs.py (CS)
 PULSA_PRODUCT_RULES = """
 ATURAN WAJIB TERKAIT PRODUK:
@@ -1075,6 +1096,7 @@ def _build_system_instruction(base_prompt: str, agent_id: str) -> str:
         instruction += PULSA_PRODUCT_RULES
     elif agent_id == "cs_agent":
         instruction += CS_SERVICE_RULES
+    instruction += IMAGE_RULES  # tag [GAMBAR: x] berlaku utk semua agent
     return instruction
 
 
@@ -1092,9 +1114,76 @@ def _send_telegram_text(bot_token: str, chat_id: str, text: str) -> bool:
         return False
 
 
-def _process_agent_message(agent_id: str, user_id: str, user_text: str) -> None:
+def _download_telegram_photo(bot_token: str, file_id: str):
+    """Unduh foto yang dikirim user menjadi bytes (untuk AI multimodal).
+
+    Alur Telegram: getFile(file_id) -> file_path -> unduh lewat endpoint
+    /file/bot<TOKEN>/<file_path>. Best-effort: None bila gagal.
+    """
+    if not bot_token or not file_id:
+        return None
+    try:
+        info = requests.get(
+            f"https://api.telegram.org/bot{bot_token}/getFile",
+            params={"file_id": file_id},
+            timeout=15,
+        )
+        file_path = (info.json().get("result") or {}).get("file_path")
+        if not file_path:
+            print(f"[WEBHOOK] getFile tanpa file_path (file_id={file_id[:12]}...)")
+            return None
+        resp = requests.get(
+            f"https://api.telegram.org/file/bot{bot_token}/{file_path}",
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return resp.content
+    except (requests.RequestException, ValueError) as e:
+        print(f"[WEBHOOK] Gagal mengunduh foto user: {e}")
+        return None
+
+
+def _send_telegram_photo(bot_token: str, chat_id: str, image_path) -> bool:
+    """Kirim file gambar lokal via sendPhoto (multipart/form-data)."""
+    if not image_path.exists():
+        print(f"[WEBHOOK] Gambar tidak ditemukan: {image_path}")
+        return False
+    try:
+        with open(image_path, "rb") as img:
+            resp = requests.post(
+                f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+                data={"chat_id": chat_id},
+                files={"photo": img},
+                timeout=30,
+            )
+        return bool(resp.json().get("ok"))
+    except (requests.RequestException, OSError) as e:
+        print(f"[WEBHOOK] Gagal mengirim gambar {image_path.name}: {e}")
+        return False
+
+
+def _extract_image_tags(text: str):
+    """Pisahkan tag [GAMBAR: x] dari balasan AI.
+
+    Mengembalikan (teks_bersih, daftar_nama_file). Nama di luar whitelist
+    pola aman (mis. usaha path traversal) diabaikan — tidak akan dikirim.
+    """
+    filenames = []
+    for match in IMAGE_TAG_RE.finditer(text):
+        name = match.group(1).strip()
+        if SAFE_IMAGE_NAME_RE.fullmatch(name):
+            filenames.append(name)
+        else:
+            print(f"[WEBHOOK] Tag gambar tidak valid, diabaikan: {name!r}")
+    clean_text = IMAGE_TAG_RE.sub("", text).strip()
+    return clean_text, filenames
+
+
+def _process_agent_message(agent_id: str, user_id: str, user_text: str,
+                           image_bytes: bytes | None = None) -> None:
     """Otak AI webhook — port alur reply() bot.py: susun prompt & riwayat
-    dari database, panggil Gemini, simpan riwayat, kirim balasan ke user."""
+    dari database, panggil Gemini (multimodal: teks + gambar bila ada),
+    simpan riwayat, kirim balasan (teks bersih + gambar) ke user."""
     from google.genai import types
 
     cfg = get_agent_config(agent_id)
@@ -1125,6 +1214,18 @@ def _process_agent_message(agent_id: str, user_id: str, user_text: str) -> None:
     else:
         outgoing_text = user_text
 
+    # Multimodal: bila user mengirim foto, buka sebagai PIL Image dan
+    # kirim bersama teksnya. Gagal membuka -> lanjut teks saja.
+    image = None
+    if image_bytes:
+        try:
+            from PIL import Image
+            image = Image.open(io.BytesIO(image_bytes))
+            image.load()  # paksa decode sekarang, buffer boleh dibuang
+        except Exception as e:
+            print(f"[WEBHOOK] Gagal membuka gambar user ({agent_id}): {e}")
+            image = None
+
     try:
         config_kwargs = {
             "system_instruction": system_instruction,
@@ -1137,20 +1238,30 @@ def _process_agent_message(agent_id: str, user_id: str, user_text: str) -> None:
             config=types.GenerateContentConfig(**config_kwargs),
             history=history_contents,
         )
-        response = chat_session.send_message(outgoing_text)
+        response = chat_session.send_message(
+            [outgoing_text, image] if image else outgoing_text
+        )
         bot_reply = response.text if response.text else "Pesanan berhasil dicatat ke sistem."
     except Exception as e:
         print(f"[WEBHOOK] Gagal memproses AI ({agent_id}): {e}")
         bot_reply = f"Maaf, terjadi kendala pada layanan: {e}"
+
+    # "Postman": parse tag [GAMBAR: x] — teks dikirim bersih tanpa tag,
+    # lalu file gambarnya dikirim via sendPhoto.
+    clean_reply, image_files = _extract_image_tags(bot_reply)
 
     save_chat_history(
         telegram_id=user_id,
         agent_id=agent_id,
         model_name=model_name,
         user_input=user_text,
-        bot_output=bot_reply,
+        bot_output=clean_reply,
     )
-    _send_telegram_text(bot_token, user_id, bot_reply)
+
+    if clean_reply:
+        _send_telegram_text(bot_token, user_id, clean_reply)
+    for filename in image_files:
+        _send_telegram_photo(bot_token, user_id, BOT_IMAGES_DIR / filename)
 
 
 @app.route("/webhook/<agent_id>", methods=["POST"])
@@ -1164,17 +1275,29 @@ def telegram_webhook(agent_id: str):
     payload = request.get_json(silent=True) or {}
     message = payload.get("message") or payload.get("edited_message") or {}
 
-    user_text = (message.get("text") or "").strip()
+    user_text = (message.get("text") or message.get("caption") or "").strip()
     user = message.get("from") or {}
     user_id = str((message.get("chat") or {}).get("id") or user.get("id") or "")
     full_name = " ".join(filter(None, [user.get("first_name"), user.get("last_name")])) or None
     username = user.get("username")
 
-    print(f"[WEBHOOK:{agent_id}] update_id={payload.get('update_id')} "
-          f"dari={full_name or '?'} (chat {user_id or '?'}): {user_text or '(tanpa teks)'}")
+    # Multimodal masuk: foto user -> unduh bytes-nya untuk diberikan ke AI.
+    # Array `photo` berisi beberapa ukuran; elemen TERAKHIR = resolusi tertinggi.
+    image_bytes = None
+    photo_sizes = message.get("photo") or []
+    if photo_sizes and user_id:
+        file_id = photo_sizes[-1].get("file_id")
+        bot_token = get_agent_telegram_token(agent_id)
+        image_bytes = _download_telegram_photo(bot_token, file_id)
+        if not user_text:  # foto tanpa caption -> beri prompt default utk AI
+            user_text = "Pengguna mengirim gambar tanpa keterangan. Balas dengan ramah sesuai isi gambar dan konteks percakapan."
 
-    # Bukan pesan teks biasa (stiker, callback button, dsb) -> abaikan
-    if not user_id or not user_text:
+    print(f"[WEBHOOK:{agent_id}] update_id={payload.get('update_id')} "
+          f"dari={full_name or '?'} (chat {user_id or '?'}): "
+          f"{user_text or '(tanpa teks)'}{'' if not image_bytes else ' [+gambar]'}")
+
+    # Bukan pesan teks/foto biasa (stiker, callback button, dsb) -> abaikan
+    if not user_id or (not user_text and not image_bytes):
         return jsonify({"status": "ok"}), 200
 
     # Pra-cek 1: agent dimatikan superadmin -> balas pesan offline, tanpa AI
@@ -1194,7 +1317,7 @@ def telegram_webhook(agent_id: str):
     get_or_create_user(telegram_id=user_id, full_name=full_name, username=username)
 
     # Otak AI: proses, simpan riwayat, kirim balasan (semua di helper)
-    _process_agent_message(agent_id, user_id, user_text)
+    _process_agent_message(agent_id, user_id, user_text, image_bytes=image_bytes)
 
     return jsonify({"status": "ok"}), 200
 

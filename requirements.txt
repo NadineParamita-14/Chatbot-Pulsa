@@ -17,6 +17,7 @@ pgvector==0.5.0           # tipe Vector(768) utk embedding RAG
 # --- RAG / Knowledge Base ---
 PyPDF2==3.0.1
 google-genai==2.21.0      # Gemini (chat + embedding)
+Pillow==12.2.0            # buka gambar user utk AI multimodal (webhook)
 
 # --- Lainnya ---
 requests==2.33.1          # Telegram Bot API (webhook & notifikasi)

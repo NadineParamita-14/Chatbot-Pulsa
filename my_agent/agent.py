@@ -86,6 +86,21 @@ def get_hot_coffee_list(query: str = "") -> dict:
         }
 
 # ==========================================
+# Aturan tag gambar (multimodal 2-arah)
+# ==========================================
+# LLM "memesan" gambar dengan tag [GAMBAR: x] di akhir jawaban;
+# pengirim file aslinya dilakukan di luar model (webhook Flask utk
+# jalur webhook / logika polling utk bot.py). Sinkron dengan
+# IMAGE_RULES di app.py.
+IMAGE_RULES = """
+ATURAN MENGGAMBAR (WAJIB):
+Kamu memiliki akses ke gambar lokal yang bisa dikirimkan ke pengguna. Jika relevan, tambahkan tag eksak di akhir jawabanmu:
+1. Jika pengguna menanyakan daftar harga, pricelist, harga token, atau harga paket data, tambahkan tag: [GAMBAR: daftar_harga.jpg]
+2. Jika pengguna menanyakan promo, diskon, atau penawaran spesial, tambahkan tag: [GAMBAR: promo_pulsa.jpg]
+Jangan pernah mengarang nama gambar selain dua nama di atas.
+"""
+
+# ==========================================
 # Dynamic Agent Factory
 # ==========================================
 def create_agent(agent_id: str = "pulsa_agent") -> Agent:
@@ -97,7 +112,7 @@ def create_agent(agent_id: str = "pulsa_agent") -> Agent:
 
     # Ambil nilai kolom model_name dari relasi database
     selected_model = getattr(config, "model_name", "gemini-2.5-flash") if config else "gemini-2.5-flash"
-    
+
     # Ambil instruksi dari database
     if config and config.system_prompt:
         instruction_text = config.system_prompt
@@ -106,6 +121,9 @@ def create_agent(agent_id: str = "pulsa_agent") -> Agent:
             "Kamu adalah asisten virtual penjual pulsa otomatis yang ramah dan cepat. "
             "Bantu pelanggan mengecek harga dan transaksi pulsa."
         )
+
+    # Injeksi aturan tag gambar agar LLM bisa "memesan" gambar lokal
+    instruction_text = f"{instruction_text}\n{IMAGE_RULES}"
 
     print(f"-> Agent '{agent_id}' menggunakan model: {selected_model}")
 
