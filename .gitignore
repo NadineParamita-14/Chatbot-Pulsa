@@ -2,3 +2,4 @@
 .adk/
 __pycache__/
 uploads/
+.claude/
