@@ -1,0 +1,125 @@
+/*
+ * =====================================================================
+ * style.css — Styling pendukung Admin Panel
+ * ---------------------------------------------------------------------
+ * Layout utama memakai utility Tailwind (via CDN). File ini berisi
+ * hal-hal yang tidak praktis ditulis sebagai utility class:
+ * animasi modal/toast, scrollbar kustom, dan transisi tabel.
+ * =====================================================================
+ */
+
+/* ---------------------------------------------------------------------
+ * ANIMASI MODAL
+ * Backdrop memudar, kartu modal muncul dengan efek naik + skala halus.
+ * -------------------------------------------------------------------- */
+.modal-overlay {
+  animation: overlayIn 0.18s ease-out both;
+}
+
+.modal-card {
+  animation: cardIn 0.2s ease-out both;
+}
+
+@keyframes overlayIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ---------------------------------------------------------------------
+ * TOAST
+ * Elemen toast dibuat oleh app.js dengan class Tailwind; keyframes di
+ * bawah memperhalus kemunculan & kepergian notifikasi.
+ * -------------------------------------------------------------------- */
+#toast-container > div {
+  animation: toastIn 0.2s ease-out both;
+}
+
+#toast-container > div.closing {
+  animation: toastOut 0.2s ease-in both;
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes toastOut {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(8px); }
+}
+
+/* ---------------------------------------------------------------------
+ * JENDELA CHAT (view #chats, layout ala WhatsApp Web)
+ * Latar krem khas aplikasi chat dengan pola titik halus.
+ * -------------------------------------------------------------------- */
+.chat-bg {
+  background-color: #efeae2; /* krem lembut khas chat app */
+  background-image: radial-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+/* ---------------------------------------------------------------------
+ * TABEL
+ * Transisi halus saat baris di-hover (dipakai semua view bertabel).
+ * -------------------------------------------------------------------- */
+tbody tr {
+  transition: background-color 0.12s ease-in-out;
+}
+
+/* ---------------------------------------------------------------------
+ * SCROLLBAR KUSTOM (area konten & modal yang bisa digulir)
+ * -------------------------------------------------------------------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent; /* slate-300 / transparan */
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8; /* slate-400 */
+}
+
+/* ---------------------------------------------------------------------
+ * SIDEBAR (desktop selalu tampil; mobile digeser via class Tailwind)
+ * -------------------------------------------------------------------- */
+#sidebar {
+  transition: transform 0.2s ease-in-out;
+}
+
+/* ---------------------------------------------------------------------
+ * AKSESIBILITAS: hargai preferensi pengguna yang mematikan animasi
+ * -------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .modal-overlay,
+  .modal-card,
+  #toast-container > div,
+  #sidebar,
+  tbody tr {
+    animation: none !important;
+    transition: none !important;
+  }
+}

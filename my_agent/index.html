@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Portfolio | Nama Anda</title>
+  <meta name="description" content="Portfolio pribadi — proyek, keahlian, dan kontak." />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ===== NAVBAR ===== -->
+  <header class="navbar">
+    <nav class="container nav-inner">
+      <a href="#hero" class="logo">Portfolio<span>.</span></a>
+
+      <input type="checkbox" id="nav-toggle" class="nav-toggle" />
+      <label for="nav-toggle" class="nav-burger" aria-label="Buka menu">
+        <span></span><span></span><span></span>
+      </label>
+
+      <ul class="nav-links">
+        <li><a href="#hero">Beranda</a></li>
+        <li><a href="#tentang">Tentang</a></li>
+        <li><a href="#proyek">Proyek</a></li>
+        <li><a href="#kontak" class="btn btn-outline">Kontak</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ===== HERO ===== -->
+    <section id="hero" class="hero">
+      <div class="container hero-inner">
+        <p class="hero-greeting">Halo, saya 👋</p>
+        <h1 class="hero-title">Nama Anda</h1>
+        <h2 class="hero-subtitle">Web Developer &amp; UI Designer</h2>
+        <p class="hero-desc">
+          Saya membangun website yang cepat, rapi, dan nyaman digunakan —
+          dengan fokus pada pengalaman pengguna dan detail visual.
+        </p>
+        <div class="hero-actions">
+          <a href="#proyek" class="btn btn-primary">Lihat Proyek</a>
+          <a href="#kontak" class="btn btn-outline">Hubungi Saya</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== TENTANG SAYA ===== -->
+    <section id="tentang" class="section">
+      <div class="container">
+        <h2 class="section-title">Tentang <span>Saya</span></h2>
+        <div class="about-grid">
+          <div class="about-text">
+            <p>
+              Saya seorang developer yang menyukai antarmuka bersih dan kode yang
+              terstruktur. Berpengalaman membangun landing page, dashboard, dan
+              aplikasi web berbasis HTML, CSS, dan JavaScript.
+            </p>
+            <p>
+              Di luar coding, saya senang mempelajari tren desain terbaru dan
+              berkontribusi pada proyek open source.
+            </p>
+          </div>
+          <ul class="skills">
+            <li>HTML &amp; CSS</li>
+            <li>JavaScript</li>
+            <li>React</li>
+            <li>Responsive Design</li>
+            <li>Git &amp; GitHub</li>
+            <li>UI/UX Design</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== PROYEK ===== -->
+    <section id="proyek" class="section section-alt">
+      <div class="container">
+        <h2 class="section-title">Proyek <span>Terbaru</span></h2>
+        <div class="project-grid">
+
+          <article class="project-card">
+            <div class="project-thumb thumb-1"></div>
+            <div class="project-body">
+              <h3>Toko Online</h3>
+              <p>E-commerce sederhana dengan katalog produk, keranjang belanja, dan halaman checkout.</p>
+              <div class="project-tags">
+                <span>HTML</span><span>CSS</span><span>JavaScript</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="project-card">
+            <div class="project-thumb thumb-2"></div>
+            <div class="project-body">
+              <h3>Dashboard Cuaca</h3>
+              <p>Aplikasi cuaca real-time yang menampilkan prakiraan harian berbasis API.</p>
+              <div class="project-tags">
+                <span>React</span><span>API</span><span>CSS</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="project-card">
+            <div class="project-thumb thumb-3"></div>
+            <div class="project-body">
+              <h3>Blog Pribadi</h3>
+              <p>Blog statis yang cepat dengan tampilan artikel yang bersih dan mudah dibaca.</p>
+              <div class="project-tags">
+                <span>HTML</span><span>CSS</span>
+              </div>
+            </div>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== KONTAK ===== -->
+    <section id="kontak" class="section">
+      <div class="container">
+        <h2 class="section-title">Hubungi <span>Saya</span></h2>
+        <p class="section-desc">
+          Punya proyek atau sekadar ingin menyapa? Kirim pesan lewat form di bawah.
+        </p>
+
+        <form class="contact-form" action="#" method="post">
+          <div class="form-row">
+            <input type="text" name="nama" placeholder="Nama Anda" required />
+            <input type="email" name="email" placeholder="Email Anda" required />
+          </div>
+          <textarea name="pesan" rows="5" placeholder="Tulis pesan Anda..." required></textarea>
+          <button type="submit" class="btn btn-primary">Kirim Pesan</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="footer">
+    <div class="container footer-inner">
+      <p>© 2026 Nama Anda. Dibuat dengan ❤️ dan CSS.</p>
+      <div class="socials">
+        <a href="#">GitHub</a>
+        <a href="#">LinkedIn</a>
+        <a href="#">Instagram</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

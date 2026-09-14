@@ -1,0 +1,4 @@
+.env
+.adk/
+__pycache__/
+uploads/

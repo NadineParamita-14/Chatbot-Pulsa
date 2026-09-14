@@ -1,0 +1,24 @@
+# Dependensi Admin Panel (Flask) + Bot Telegram
+# Dicocokkan dgn versi yang terpasang di environment lokal (Python 3.11).
+
+# --- Web / API ---
+Flask==3.1.3
+flask-cors==6.0.5
+gunicorn==23.0.0          # production WSGI server (untuk Docker)
+
+# --- Auth ---
+PyJWT==2.13.0
+
+# --- Database ---
+SQLAlchemy==2.0.52
+psycopg2-binary==2.9.12
+pgvector==0.5.0           # tipe Vector(768) utk embedding RAG
+
+# --- RAG / Knowledge Base ---
+PyPDF2==3.0.1
+google-genai==2.21.0      # Gemini (chat + embedding)
+
+# --- Lainnya ---
+requests==2.33.1          # Telegram Bot API (webhook & notifikasi)
+python-dotenv==1.2.3
+python-telegram-bot==22.8 # polling bot (bot.py / bot_cs.py, dijalankan terpisah)

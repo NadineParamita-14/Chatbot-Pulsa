@@ -1,0 +1,33 @@
+# =====================================================================
+# .dockerignore — jangan ikutkan file lokal/rahasia ke build context
+# =====================================================================
+
+# Git
+.git
+.gitignore
+
+# Python cache & virtualenv
+__pycache__/
+*.pyc
+*.pyo
+venv/
+env/
+.venv/
+
+# Environment & rahasia (injeksi lewat `docker run --env-file`, bukan image)
+.env
+**/.env
+
+# Data lokal development
+session.db
+*.sqlite3
+uploads/
+
+# Editor & tooling
+.vscode/
+.idea/
+.claude/
+
+# Docker itu sendiri (tidak perlu di dalam image)
+Dockerfile
+.dockerignore
