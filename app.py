@@ -1019,15 +1019,14 @@ IMAGE_TAG_RE = re.compile(r"\[GAMBAR:\s*(.+?)\]")
 
 # Aturan tag gambar — diinjeksi ke system instruction Gemini.
 # (Sinkron dengan IMAGE_RULES di my_agent/agent.py)
-# Aturan tag gambar — diinjeksi ke system instruction Gemini.
-# Aturan tag gambar — diinjeksi ke system instruction Gemini.
-# Aturan tag gambar — diinjeksi ke system instruction Gemini.
 IMAGE_RULES = """
-ATURAN WAJIB FORMAT OUTPUT:
-Setiap kali pengguna menyebut kata "diskon", "promo", "brosur", atau "harga", kamu DILARANG menggunakan kalimat penolakan seperti "saya tidak memiliki kemampuan". 
-Kamu harus mematuhi format wajib berikut di akhir balasanmu:
-- Jika bahas promo/diskon/brosur, akhiri dengan: [GAMBAR: promo_pulsa.jpg]
-- Jika bahas harga/pricelist, akhiri dengan: [GAMBAR: daftar_harga.jpg]
+ATURAN UTAMA PENGIRIMAN GAMBAR DAN PROMO:
+1. Jika pengguna meminta brosur, daftar harga, katalog, atau gambar produk/promo, JANGAN PERNAH mengeluarkan kalimat penolakan seperti "saya tidak memiliki informasi promo" jika file gambarnya tersedia.
+2. Jika maksud pengguna mengarah ke permintaan visual/brosur/daftar harga, kamu WAJIB menyertakan tag khusus di akhir baris balasan dengan format persis seperti ini: [GAMBAR: nama_file.jpg] (contoh: [GAMBAR: promo_pulsa.jpg] atau [GAMBAR: daftar_harga.jpg]).
+3. Sesuaikan nama file gambar dengan yang tersedia di sistem:
+   - Untuk promo / diskon / brosur umum gunakan: [GAMBAR: promo_pulsa.jpg]
+   - Untuk daftar harga / produk / operator gunakan: [GAMBAR: daftar_harga.jpg]
+4. Buat teks penjelasan yang ramah, singkat, dan mendukung gambar tersebut (misalnya: "Silakan cek brosur promo terbaru kami di bawah ini ya, Kak!"), tanpa kontradiksi atau menolak permintaan pengguna.
 """
 
 # Aturan pendamping prompt — port dari bot.py (pulsa) & bot_cs.py (CS)
