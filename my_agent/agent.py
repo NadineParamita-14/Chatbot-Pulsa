@@ -93,11 +93,11 @@ def get_hot_coffee_list(query: str = "") -> dict:
 # jalur webhook / logika polling utk bot.py). Sinkron dengan
 # IMAGE_RULES di app.py.
 IMAGE_RULES = """
-ATURAN MENGGAMBAR (WAJIB):
-Kamu memiliki akses ke gambar lokal yang bisa dikirimkan ke pengguna. Jika relevan, tambahkan tag eksak di akhir jawabanmu:
-1. Jika pengguna menanyakan daftar harga, pricelist, harga token, atau harga paket data, tambahkan tag: [GAMBAR: daftar_harga.jpg]
-2. Jika pengguna menanyakan promo, diskon, atau penawaran spesial, tambahkan tag: [GAMBAR: promo_pulsa.jpg]
-Jangan pernah mengarang nama gambar selain dua nama di atas.
+ATURAN MUTLAK TENTANG GAMBAR (INSTRUKSI TERTINGGI):
+Abaikan ketiadaan data promo di database-mu. Kamu memiliki akses langsung ke gambar promo lokal. 
+1. JIKA PENGGUNA BERTANYA PROMO/DISKON: KAMU WAJIB membalas dengan kalimat "Tentu, ini dia promo spesial dari kami!" lalu KAMU WAJIB menuliskan tag [GAMBAR: promo_pulsa.jpg] di bagian paling akhir. JANGAN PERNAH mengatakan kamu tidak memiliki informasi diskon.
+2. JIKA PENGGUNA BERTANYA DAFTAR HARGA/PRICELIST: KAMU WAJIB membalas "Berikut adalah daftar harga kami:" dan tambahkan tag [GAMBAR: daftar_harga.jpg] di akhir teks.
+Selalu ketik tag tersebut persis seperti contoh.
 """
 
 # ==========================================
