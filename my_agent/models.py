@@ -45,6 +45,10 @@ class User(Base):
     # dan admin membalas langsung dari Admin Panel.
     is_manual_mode = Column(Boolean, default=False, nullable=False)
 
+    # 3-Strike Rule: True = user diblokir permanen karena berulang kali
+    # memakai bahasa toxic. Webhook mengabaikan total update darinya.
+    is_blocked = Column(Boolean, default=False, nullable=False)
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -280,6 +284,12 @@ def init_db():
                 ADD COLUMN IF NOT EXISTS name VARCHAR(100),
                 ADD COLUMN IF NOT EXISTS telegram_token VARCHAR(255),
                 ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+        """))
+        # Migrasi 3-Strike Rule: kolom blokir permanen user (default False).
+        # Idempoten — IF NOT EXISTS aman dijalankan berulang kali.
+        conn.execute(text("""
+            ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE;
         """))
         # Migrasi RAG: skema documents/rag_documents yang lama (rag_documents
         # bergaya title/content, documents bergaya db_setup title/embedding)

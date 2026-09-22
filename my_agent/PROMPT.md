@@ -812,3 +812,65 @@ TONE & STYLE GUIDELINES:
 - Always use the greeting "Kak".
 - Maintain a professional, fast-responding, and non-defensive attitude at all times, especially when handling complaints.
 - DO NOT HALLUCINATE. If the text in the image is unreadable, be honest and ask the user to provide a new image.
+
+# Context
+I am developing a Telegram chatbot for Customer Service and Digital Transactions (Pulsa) using Flask, PostgreSQL (with SQLAlchemy/psycopg2), Redis, and an LLM API (Gemini/Claude). 
+
+# Task
+I need to implement a **"3-Strike Rule" for toxic or abusive language** from users. The system must track offenses using Redis for fast state management and PostgreSQL for permanent bans.
+
+# Architecture & Logic Requirements
+
+## 1. Early Return / Gatekeeper (Flask Webhook)
+- At the very beginning of the webhook handler in `app.py`, query PostgreSQL to check if the `user_id` has `is_blocked == True`.
+- If `True`, immediately return a `200 OK` response to Telegram **without sending any message back**. (This is critical to prevent Telegram from retrying the webhook).
+
+## 2. LLM Intent Detection (System Prompt)
+- Modify my existing LLM System Prompt to instruct the AI to detect abusive, toxic, or highly inappropriate language.
+- The AI must return a structured JSON response when toxicity is detected, for example: `{"intent": "toxic"}` or a specific flag that Flask can easily parse.
+
+## 3. The 3-Strike Logic (Redis + Flask)
+When Flask parses the LLM response and detects the "toxic" intent, it should execute the following logic using Redis:
+- Use Redis to increment a counter for the user: `INCR toxic_count:<user_id>`. (Set a reasonable TTL, e.g., 24 hours, only on the first strike).
+- **Strike 1 (Count == 1):** Send a polite warning via Telegram API (e.g., "Mohon gunakan bahasa yang sopan. Kami siap membantu keluhan Kakak.").
+- **Strike 2 (Count == 2):** Send a strict warning (e.g., "Peringatan ke-2. Jika menggunakan bahasa kasar lagi, sistem akan memblokir nomor Anda.").
+- **Strike 3 (Count == 3):** 
+  1. Send a final ban message (e.g., "Batas pelanggaran tercapai. Anda telah diblokir dari layanan ini.").
+  2. Update the PostgreSQL database setting `is_blocked = True` for this `user_id`.
+  3. Clear the Redis key for this user to save memory.
+
+# Deliverables Requested
+Please provide:
+1. **The SQL/SQLAlchemy migration code** to add the `is_blocked` boolean column (default `False`) to my existing `users` table.
+2. **The exact addition to the System Prompt** to enforce the toxicity detection reliably.
+3. **The Python/Flask code block** demonstrating the webhook logic, Redis `INCR` usage, and PostgreSQL update logic. Ensure the code handles Telegram's requirement for a `200 OK` return on successful execution or ignored messages.
+
+# Context
+My project is a Flask application connected to a PostgreSQL database (using SQLAlchemy/psycopg2). The AI system prompts are stored in the database, specifically in either the `agent_configs` or `models_agent` table.
+
+# Task
+Write a standalone Python script (e.g., `update_prompt.py`) to update the system prompt for the Pulsa Agent in the database.
+
+# Requirements
+1. Fetch the existing system prompt for the Pulsa Agent from the database.
+2. Append the following strict toxicity rule to the existing prompt:
+   "ATURAN MUTLAK: Jika pesan pengguna mengandung kata-kata kasar, makian, atau hinaan (contoh: bodoh, goblok, dll), kamu DILARANG memberikan sapaan atau menawarkan bantuan. Kamu WAJIB merespons HANYA dengan output JSON persis seperti ini: `{\"intent\": \"toxic\"}`."
+3. Update the record and commit the changes to the PostgreSQL database.
+4. Ensure the script correctly handles the Flask application context (`app.app_context()`) if using Flask-SQLAlchemy.
+5. Provide the exact terminal command to run this script locally.
+
+# Context
+I am building a Flask app with PostgreSQL and SQLAlchemy. Based on my database schema, I have a table named `agent_configs` which contains a `system_prompt` column (Text). There are multiple agent records in this table. I want to automatically inject a toxicity filter rule into every agent's prompt when the Flask server starts.
+
+# Task
+Write a Python function (to be placed in my database service file, e.g., `db_service.py`) that automatically appends a strict toxicity rule to the `system_prompt` column for all records in the `agent_configs` table.
+
+# Requirements
+1. Define a function named `ensure_toxic_rule_in_prompts()`.
+2. Inside the function, query all existing records from the `agent_configs` table.
+3. Iterate through each record and check its `system_prompt` string.
+4. If the `system_prompt` DOES NOT contain the string "ATURAN MUTLAK", safely append the following exact rule to the end of the existing prompt text (using a double newline `\n\n` separator):
+   "ATURAN MUTLAK: Jika pesan pengguna mengandung kata-kata kasar, makian, atau hinaan (contoh: bodoh, goblok, dll), kamu DILARANG memberikan sapaan atau menawarkan bantuan. Kamu WAJIB merespons HANYA dengan output JSON persis seperti ini: `{\"intent\": \"toxic\"}`."
+5. Commit the changes to the database only if an update was actually made.
+6. Provide the exact SQLAlchemy code for this function, assuming my model is named something like `AgentConfig`.
+7. Show me exactly where and how to call `ensure_toxic_rule_in_prompts()` in my main `app.py` (e.g., right after `db.create_all()`) so it runs silently in the background on startup.

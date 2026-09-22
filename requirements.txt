@@ -23,3 +23,4 @@ Pillow==12.2.0            # buka gambar user utk AI multimodal (webhook)
 requests==2.33.1          # Telegram Bot API (webhook & notifikasi)
 python-dotenv==1.2.3
 python-telegram-bot==22.8 # polling bot (bot.py / bot_cs.py, dijalankan terpisah)
+redis==8.1.0              # 3-Strike Rule: hitungan pelanggaran bahasa toxic

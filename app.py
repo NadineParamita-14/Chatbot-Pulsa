@@ -31,6 +31,7 @@ from pathlib import Path
 
 import jwt
 import PyPDF2
+import redis
 import requests
 from flask import Flask, g, jsonify, render_template, request
 from flask_cors import CORS
@@ -66,6 +67,7 @@ from db_service import (  # noqa: E402
     check_order_status,
     create_new_agent_config,
     create_new_order,
+    ensure_toxic_rule_in_prompts,
     get_agent_config,
     get_agent_telegram_token,
     get_all_rag_knowledge,
@@ -75,9 +77,11 @@ from db_service import (  # noqa: E402
     get_or_create_user,
     get_products_json_string,
     is_agent_active,
+    is_user_blocked,
     is_user_in_manual_mode,
     mark_order_as_paid,
     save_chat_history,
+    set_user_blocked,
 )
 
 # .env di root (untuk JWT_SECRET dsb). models.py sendiri sudah memuat
@@ -85,6 +89,16 @@ from db_service import (  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(BASE_DIR / ".env")
+
+# Dipanggil di level modul (bukan hanya __main__) agar ikut jalan saat
+# server start di mana pun — python app.py maupun gunicorn (Docker).
+# Idempoten: hanya menambah ATURAN MUTLAK ke system prompt agent yang
+# belum memilikinya. Best-effort: kegagalan DB tidak boleh menggagalkan
+# start aplikasi.
+try:
+    ensure_toxic_rule_in_prompts()
+except Exception as _e:  # pragma: no cover
+    print(f"[STARTUP] Peringatan: ensure_toxic_rule_in_prompts gagal: {_e}")
 
 # ---------------------------------------------------------------------
 # Konfigurasi Aplikasi
@@ -1185,6 +1199,100 @@ def _extract_image_tags(text: str):
     return clean_text, filenames
 
 
+# =====================================================================
+# 3-STRIKE RULE — moderasi bahasa toxic (Redis + PostgreSQL)
+# AI menandai bahasa toxic dengan membalas PERSIS {"intent": "toxic"}
+# (aturan "ATURAN MUTLAK" pada system prompt — dipasang otomatis ke
+# semua agent saat startup via ensure_toxic_rule_in_prompts). Flask
+# menghitung pelanggarannya di Redis
+# (INCR toxic_count:<user_id>, TTL 24 jam sejak strike pertama);
+# strike ke-3 memblokir user permanen lewat kolom users.is_blocked.
+# =====================================================================
+_redis_client = None
+
+# Hitungan pelanggaran kedaluwarsa 24 jam setelah strike PERTAMA
+TOXIC_COUNT_TTL_SECONDS = 24 * 60 * 60
+
+# Sentinel JSON yang dibalas AI saat mendeteksi bahasa toxic
+TOXIC_INTENT_RE = re.compile(r'\{\s*"intent"\s*:\s*"toxic"\s*\}', re.IGNORECASE)
+
+# Pesan per strike (>3 tak mungkin: key Redis dihapus di strike ke-3)
+TOXIC_STRIKE_MESSAGES = {
+    1: "Mohon gunakan bahasa yang sopan. Kami siap membantu keluhan Kakak.",
+    2: "Peringatan ke-2. Jika menggunakan bahasa kasar lagi, sistem akan memblokir nomor Anda.",
+    3: "Batas pelanggaran tercapai. Anda telah diblokir dari layanan ini.",
+}
+
+
+def _get_redis():
+    """Singleton client Redis (lazy; decode_responses=True -> nilai str).
+
+    Konfigurasi dari .env: REDIS_URL bila ada, selain itu host/port/password.
+    """
+    global _redis_client
+    if _redis_client is None:
+        redis_url = os.getenv("REDIS_URL")
+        if redis_url:
+            _redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
+        else:
+            _redis_client = redis.Redis(
+                host=os.getenv("REDIS_HOST", "localhost"),
+                port=int(os.getenv("REDIS_PORT", "6379")),
+                password=os.getenv("REDIS_PASSWORD") or None,
+                decode_responses=True,
+            )
+    return _redis_client
+
+
+def _handle_toxic_strikes(agent_id: str, user_id: str, user_text: str,
+                          model_name: str) -> None:
+    """Catat pelanggaran bahasa toxic lalu kirim peringatan bertahap.
+
+    Strike 1: peringatan sopan. Strike 2: peringatan tegas.
+    Strike 3: pesan blokir + users.is_blocked=True (permanen, PostgreSQL)
+    + hapus key Redis agar memori tidak menumpuk.
+    Best-effort: kegagalan Redis/Telegram tidak boleh melempar exception —
+    webhook harus tetap membalas 200 ke Telegram.
+    """
+    # 1. INCR hitungan pelanggaran di Redis (TTL hanya di strike pertama)
+    try:
+        redis_client = _get_redis()
+        toxic_key = f"toxic_count:{user_id}"
+        count = int(redis_client.incr(toxic_key))
+        if count == 1:
+            redis_client.expire(toxic_key, TOXIC_COUNT_TTL_SECONDS)
+    except redis.RedisError as e:
+        print(f"[WEBHOOK:{agent_id}] Redis tidak tersedia — 3-Strike dilewati: {e}")
+        return
+
+    strike = min(count, 3)
+    text = TOXIC_STRIKE_MESSAGES[strike]
+    print(f"[WEBHOOK:{agent_id}] TOXIC strike {strike} dari {user_id}")
+
+    if strike == 3:
+        # Blokir permanen di PostgreSQL, lalu bersihkan key Redis
+        if set_user_blocked(user_id, True):
+            print(f"[WEBHOOK:{agent_id}] {user_id} DIBLOKIR permanen (3-Strike Rule).")
+        try:
+            redis_client.delete(toxic_key)
+        except redis.RedisError:
+            pass
+
+    # 2. Kirim pesan peringatan/blokir via bot milik agent (best-effort)
+    bot_token = get_agent_telegram_token(agent_id)
+    if bot_token:
+        _send_telegram_text(bot_token, user_id, text)
+
+    # 3. Catat ke riwayat agar admin bisa melihat pesan toxic + respons sistem
+    save_chat_history(
+        telegram_id=user_id,
+        agent_id=agent_id,
+        model_name=model_name,
+        user_input=user_text or "[pesan toxic]",
+        bot_output=text,
+    )
+
+
 def _process_agent_message(agent_id: str, user_id: str, user_text: str,
                            image_bytes: bytes | None = None) -> None:
     """Otak AI webhook — port alur reply() bot.py: susun prompt & riwayat
@@ -1252,6 +1360,13 @@ def _process_agent_message(agent_id: str, user_id: str, user_text: str,
         print(f"[WEBHOOK] Gagal memproses AI ({agent_id}): {e}")
         bot_reply = f"Maaf, terjadi kendala pada layanan: {e}"
 
+    # 3-Strike Rule: AI menandai bahasa toxic lewat JSON {"intent": "toxic"}.
+    # JSON mentah TIDAK diteruskan ke user — ganti dengan peringatan/blokir,
+    # lalu hentikan alur normal (tidak ada balasan AI & tidak kirim gambar).
+    if TOXIC_INTENT_RE.search(bot_reply or ""):
+        _handle_toxic_strikes(agent_id, user_id, user_text, model_name)
+        return
+
     # "Postman": parse tag [GAMBAR: x] — teks dikirim bersih tanpa tag,
     # lalu file gambarnya dikirim via sendPhoto.
     clean_reply, image_files = _extract_image_tags(bot_reply)
@@ -1286,6 +1401,13 @@ def telegram_webhook(agent_id: str):
     user_id = str((message.get("chat") or {}).get("id") or user.get("id") or "")
     full_name = " ".join(filter(None, [user.get("first_name"), user.get("last_name")])) or None
     username = user.get("username")
+
+    # Pra-cek 0 (3-Strike Rule): user yang sudah DIBLOKIR diabaikan total —
+    # balas 200 OK tanpa pesan apa pun (agar Telegram tidak mengulang update),
+    # tanpa mengunduh foto dan tanpa memanggil AI.
+    if user_id and is_user_blocked(user_id):
+        print(f"[WEBHOOK:{agent_id}] {user_id} diblokir -> update diabaikan (gatekeeper).")
+        return jsonify({"status": "ok"}), 200
 
     # Multimodal masuk: foto user -> unduh bytes-nya untuk diberikan ke AI.
     # Array `photo` berisi beberapa ukuran; elemen TERAKHIR = resolusi tertinggi.

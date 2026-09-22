@@ -534,6 +534,52 @@ def seed_cs_agent():
         session.close()
 
 
+# Aturan deteksi bahasa toxic (fitur 3-Strike Rule). Marker dipakai untuk
+# cek kehadiran aturan agar tidak pernah terduplikasi di system prompt.
+TOXIC_RULE_MARKER = "ATURAN MUTLAK"
+
+TOXIC_RULE_TEXT = (
+    "ATURAN MUTLAK: Jika pesan pengguna mengandung kata-kata kasar, makian, "
+    "atau hinaan (contoh: bodoh, goblok, dll), kamu DILARANG memberikan sapaan "
+    "atau menawarkan bantuan. Kamu WAJIB merespons HANYA dengan output JSON "
+    'persis seperti ini: {"intent": "toxic"}.'
+)
+
+
+def ensure_toxic_rule_in_prompts():
+    """Pastikan ATURAN MUTLAK deteksi toxic ada di system prompt SEMUA agent.
+
+    Dipanggil sekali saat aplikasi start (lihat app.py): setiap baris di
+    agent_configs yang system_prompt-nya belum memuat marker "ATURAN MUTLAK"
+    otomatis ditambahkan aturan tersebut (pemisah double newline). Commit
+    hanya dilakukan bila memang ada perubahan — idempoten dan aman dipanggil
+    berulang (termasuk oleh reloader Flask debug / multi-worker gunicorn).
+    """
+    session = SessionLocal()
+    updated = 0
+    try:
+        agents = session.query(AgentConfig).all()
+        for agent in agents:
+            prompt = agent.system_prompt or ""
+            if TOXIC_RULE_MARKER in prompt:
+                continue
+            if prompt.strip():
+                agent.system_prompt = f"{prompt.rstrip()}\n\n{TOXIC_RULE_TEXT}"
+            else:
+                agent.system_prompt = TOXIC_RULE_TEXT
+            updated += 1
+        if updated:
+            session.commit()
+            print(f"[OK] Aturan toxic ditambahkan ke {updated} system prompt agent.")
+        else:
+            print("[OK] Semua system prompt sudah memuat aturan toxic — dilewati.")
+    except Exception as e:
+        session.rollback()
+        print(f"✗ Gagal memasang aturan toxic ke system prompt: {e}")
+    finally:
+        session.close()
+
+
 def create_new_agent_config(agent_id: str, name: str, telegram_token: str = None):
     """Sisipkan agent brand-new dengan pengaturan AI default.
 
@@ -640,6 +686,46 @@ def is_user_in_manual_mode(telegram_id: str) -> bool:
         return bool(user and user.is_manual_mode)
     except Exception as e:
         print(f"✗ Gagal cek mode manual: {e}")
+        return False
+    finally:
+        session.close()
+
+
+def is_user_blocked(telegram_id: str) -> bool:
+    """True bila user telah diblokir permanen (3-Strike Rule bahasa toxic).
+
+    Dipakai webhook sebagai gatekeeper paling awal: user yang diblokir
+    diabaikan total (tanpa balasan, tanpa AI). Error database sengaja
+    fail-open (return False) mengikuti pola is_user_in_manual_mode —
+    proses bot jangan berhenti hanya karena pemeriksaan blokir gagal.
+    """
+    session = SessionLocal()
+    try:
+        user = session.query(User).filter_by(telegram_id=str(telegram_id)).first()
+        return bool(user and user.is_blocked)
+    except Exception as e:
+        print(f"✗ Gagal cek status blokir user: {e}")
+        return False
+    finally:
+        session.close()
+
+
+def set_user_blocked(telegram_id: str, blocked: bool = True) -> bool:
+    """Set status blokir permanen user (3-Strike Rule) di tabel users.
+    Baris user belum ada -> dibuat dulu. Mengembalikan True bila sukses."""
+    session = SessionLocal()
+    try:
+        user = session.query(User).filter_by(telegram_id=str(telegram_id)).first()
+        if user is None:
+            user = User(telegram_id=str(telegram_id), is_blocked=blocked)
+            session.add(user)
+        else:
+            user.is_blocked = blocked
+        session.commit()
+        return True
+    except Exception as e:
+        session.rollback()
+        print(f"✗ Gagal mengubah status blokir user: {e}")
         return False
     finally:
         session.close()
