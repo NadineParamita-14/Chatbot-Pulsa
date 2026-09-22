@@ -1481,6 +1481,40 @@ def register_telegram_webhook(agent_id: str, bot_token: str) -> bool:
         return False
 
 
+def register_all_webhooks_at_startup() -> None:
+    """Daftarkan ulang webhook SEMUA agent yang punya token saat aplikasi start.
+
+    Tanpa ini, Telegram terus menunjuk URL lama (mis. tunnel ngrok yang sudah
+    mati) setelah PUBLIC_BASE_URL berubah, karena setWebhook sebelumnya hanya
+    terpicu lewat simpan form di Admin Panel. Best-effort: kegagalan satu
+    agent tidak menggagalkan agent lain maupun start aplikasi.
+    """
+    db = SessionLocal()
+    try:
+        agents = db.query(AgentConfig).all()
+    except Exception as e:
+        print(f"[STARTUP] Gagal mengambil daftar agent — auto-registrasi webhook dilewati: {e}")
+        return
+    finally:
+        db.close()
+
+    registered = 0
+    for cfg in agents:
+        if cfg.telegram_token and register_telegram_webhook(cfg.agent_id, cfg.telegram_token):
+            registered += 1
+    print(f"[STARTUP] Auto-registrasi webhook: {registered}/{len(agents)} "
+          f"agent terdaftar ke {PUBLIC_BASE_URL}.")
+
+
+# Dipanggil di level modul agar ikut jalan saat server start di mana pun —
+# python app.py maupun gunicorn (Docker). Best-effort, sama pola dengan
+# ensure_toxic_rule_in_prompts() di atas.
+try:
+    register_all_webhooks_at_startup()
+except Exception as _e:  # pragma: no cover
+    print(f"[STARTUP] Peringatan: auto-registrasi webhook gagal: {_e}")
+
+
 # =====================================================================
 # ENDPOINT: AGENTS — daftar ringkas & pembuatan agent baru (superadmin)
 # Grid kartu di #agent-config memakai GET; form "Tambah Agent" memakai POST.
