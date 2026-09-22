@@ -1006,12 +1006,12 @@ def send_manual_message(telegram_id: str):
 
 # =====================================================================
 # TELEGRAM WEBHOOK (arsitektur webhook terpusat via Flask)
-# Telegram mengirim update ke /webhook/<agent_id>. URL publik berasal
-# dari tunnel Ngrok — ganti via env PUBLIC_BASE_URL saat URL berubah.
+# Telegram mengirim update ke /webhook/<agent_id>. URL publik diambil
+# dari env PUBLIC_BASE_URL (domain produksi).
 # =====================================================================
 PUBLIC_BASE_URL = os.getenv(
     "PUBLIC_BASE_URL",
-    "https://quail-squealing-stage.ngrok-free.dev",
+    "https://intern.exmp.fun",
 ).rstrip("/")
 
 
