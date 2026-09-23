@@ -1,0 +1,53 @@
+# =====================================================================
+# Docker Compose — Admin Panel API (Flask) + WAHA (WhatsApp gateway)
+# ---------------------------------------------------------------------
+# Kedua service memakai `network_mode: host` supaya:
+#   - Flask tetap bisa reach Redis di localhost:6379 (REDIS_URL .env)
+#   - Flask memanggil WAHA via http://localhost:3000 (WAHA_BASE_URL .env)
+#   - WAHA mengirim webhook ke https://intern.exmp.fun/webhook/whatsapp
+#
+# WAHA env penting (diambil otomatis dari .env via interpolasi compose):
+#   WHATSAPP_API_KEY            -> proteksi API (header X-Api-Key); diisi
+#                                  dari WAHA_API_KEY di .env — satu kunci
+#                                  dipakai dua arah (webhook masuk & kirim)
+#   WAHA_WEBHOOK_URL            -> tujuan event WhatsApp (webhook Flask),
+#                                  disusun dari PUBLIC_BASE_URL di .env
+#   WAHA_WEBHOOK_EVENTS_MESSAGE -> hanya event 'message' yang dikirim
+#
+# Jalankan (di VPS, dari folder proyek):
+#   docker compose build
+#   docker compose up -d
+#
+# Mulai sesi WhatsApp + scan QR (sekali saja; tersimpan di volume):
+#   curl -X POST http://localhost:3000/api/sessions/start \
+#     -H "X-Api-Key: <WAHA_API_KEY>" -H "Content-Type: application/json" \
+#     -d '{"name": "default"}'
+#   curl "http://localhost:3000/api/screenshot?name=default" -o qr.png
+#
+# Catatan: WAHA listen di port 3000 host. Kalau VPS memakai firewall
+# (ufw/security group), boleh ditutup dari luar — Flask mengaksesnya
+# via localhost, jadi tidak perlu dibuka ke publik.
+# =====================================================================
+
+services:
+  app:
+    build: .
+    env_file: .env
+    network_mode: host
+    restart: unless-stopped
+
+  waha:
+    image: devlikeapro/waha:latest
+    network_mode: host
+    environment:
+      WHATSAPP_API_KEY: "${WAHA_API_KEY}"
+      WAHA_WEBHOOK_URL: "${PUBLIC_BASE_URL}/webhook/whatsapp"
+      WAHA_WEBHOOK_EVENTS_MESSAGE: "true"
+    volumes:
+      # Sesi WhatsApp (hasil scan QR) dipersistenkan agar tidak scan ulang
+      # setiap container restart/update.
+      - waha-sessions:/app/.sessions
+    restart: unless-stopped
+
+volumes:
+  waha-sessions:

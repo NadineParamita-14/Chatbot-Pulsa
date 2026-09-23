@@ -874,3 +874,40 @@ Write a Python function (to be placed in my database service file, e.g., `db_ser
 5. Commit the changes to the database only if an update was actually made.
 6. Provide the exact SQLAlchemy code for this function, assuming my model is named something like `AgentConfig`.
 7. Show me exactly where and how to call `ensure_toxic_rule_in_prompts()` in my main `app.py` (e.g., right after `db.create_all()`) so it runs silently in the background on startup.
+
+# Context
+My Flask application currently uses a PostgreSQL database with a `users` table that only supports Telegram (`telegram_id`). I am expanding the system to natively support WhatsApp via WAHA alongside Telegram using a unified identity schema.
+
+# Task
+Update the `User` model schema in `db_service.py` (or equivalent models file) and modify the database handling logic to accommodate multi-channel user identification (`channel`, `platform_id`, and `whatsapp_lid`).
+
+# Requirements
+1. **Update the `User` Model (SQLAlchemy):**
+   - Keep the primary key `id`.
+   - Add a `channel` column (String, default `'telegram'`): to distinguish between `'telegram'` and `'whatsapp'`.
+   - Modify `telegram_id` (String, unique, nullable=True): to allow null values since WhatsApp users won't have a Telegram ID.
+   - Add a `whatsapp_lid` column (String, unique, nullable=True): to store the WhatsApp LID string without the `@lid` suffix.
+   - Update `platform_id` (String, unique/indexed appropriately): to store the primary route ID (Telegram chat ID or WhatsApp phone number without `@c.us`).
+   - Keep existing profile and control columns: `full_name`, `username` (nullable), `is_manual_mode`, `is_blocked`, `created_at`, and `updated_at`.
+
+2. **Update User Lookup / Creation Logic:**
+   - Write or update helper functions in `db_service.py` to query and upsert users based on the combination of `channel` and `platform_id` rather than just `telegram_id`.
+   - Ensure that incoming WhatsApp payloads correctly parse and strip suffixes (e.g., stripping `@c.us` for `platform_id` and `@lid` for `whatsapp_lid`).
+
+3. **Database Migration Script:**
+   - Provide a safe migration script or SQLAlchemy code snippet (or Alembic command guidance) to add the new columns (`channel`, `whatsapp_lid`) and adjust constraints on existing PostgreSQL tables without destroying existing user data.
+
+# Context
+Phase 1 of the universal identity database migration (`users` table) was successful. Now, we must resolve technical debt in related tables and finalize the integration by building the WhatsApp webhook.
+
+# Tasks
+1. **Database Cleanup:** Execute the removal of the typo column (`ALTER TABLE users DROP COLUMN is_manuak_mode;`).
+2. **Foreign Key Migration:** 
+   - Inspect the `chat_histories` and `orders` tables which currently use `telegram_id` as a foreign key.
+   - Refactor their schemas to link properly to the new universal identity model (ideally by migrating the FK to point to the primary key `users.id` as `user_id`, or `platform_id`, whichever fits the current SQLAlchemy architecture best).
+   - Provide a safe migration script to update existing records before dropping the old `telegram_id` constraints in these tables.
+3. **Build the WAHA Webhook Endpoint:** 
+   - Create a new route in `app.py` (e.g., `@app.route('/webhook/whatsapp', methods=['POST'])`).
+   - Utilize the prepared `parse_waha_sender()` and `get_user_by_route()` helpers to extract incoming JSON payloads.
+   - Implement the exact same Redis-backed 3-strike toxicity rule (gatekeeper logic) used in the Telegram webhook.
+   - Route the validated message to the AI agent and structure the API request to send the reply back via WAHA.

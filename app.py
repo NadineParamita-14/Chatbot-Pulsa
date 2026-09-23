@@ -60,6 +60,8 @@ from models import (  # noqa: E402
     RagDocument,
     SessionLocal,
     User,
+    CHANNEL_TELEGRAM,
+    CHANNEL_WHATSAPP,
 )
 
 # Logika bisnis order (verifikasi + potong stok) dibagi pakai dengan bot
@@ -76,6 +78,7 @@ from db_service import (  # noqa: E402
     get_last_10_history,
     get_or_create_user,
     get_products_json_string,
+    parse_waha_sender,
     is_agent_active,
     is_user_blocked,
     is_user_in_manual_mode,
@@ -314,7 +317,7 @@ def serialize_order(o: Order, with_items: bool = True) -> dict:
         "tax": float(o.tax),
         "total_amount": float(o.total_amount),
         "total_items": o.total_items,
-        "telegram_id": o.telegram_id,
+        "user_id": o.user_id,
         "payment_status": o.payment.status if o.payment else None,
         "created_at": _iso(o.created_at),
         "updated_at": _iso(o.updated_at),
@@ -327,7 +330,9 @@ def serialize_order(o: Order, with_items: bool = True) -> dict:
 def serialize_chat(c: ChatHistory) -> dict:
     return {
         "id": c.id,
-        "telegram_id": c.telegram_id,
+        "user_id": c.user_id,
+        "channel": c.user.channel if c.user else None,
+        "platform_id": c.user.platform_id if c.user else None,
         "user_name": c.user.full_name if c.user else None,
         "username": c.user.username if c.user else None,
         "agent_id": c.agent_id,
@@ -652,20 +657,36 @@ NOTIFY_AGENT_ID = "pulsa_agent"
 
 
 def _notify_buyer(invoice_number: str) -> dict:
-    """Kirim pesan Telegram 'pembayaran terverifikasi' ke pemilik invoice.
+    """Kirim pesan 'pembayaran terverifikasi' ke pemilik invoice sesuai
+    channel-nya (Telegram via bot agent penjualan, WhatsApp via WAHA).
     Bersifat best-effort: selalu mengembalikan {"sent": bool, "detail": str}
     dan TIDAK melempar exception — kegagalan kirim tidak boleh menggagalkan
     webhook karena pembayaran sendiri sudah tercatat di database.
-
-    Token bot diambil dari tabel agent_configs (kolom telegram_token milik
-    NOTIFY_AGENT_ID). Bila konfigurasi/token belum diisi, notifikasi
-    dilewati dengan aman (dilog ke terminal) tanpa crash.
     """
     db = get_db()
     order = db.query(Order).filter_by(invoice_number=invoice_number).first()
-    if order is None or not order.telegram_id:
-        return {"sent": False, "detail": "Order tidak memiliki telegram_id — notifikasi dilewati."}
+    if order is None or order.user_id is None:
+        return {"sent": False, "detail": "Order tidak memiliki pemilik (user_id) — notifikasi dilewati."}
 
+    user = order.user
+    if user is None:
+        return {"sent": False, "detail": "User pemilik order tidak ditemukan — notifikasi dilewati."}
+
+    text = (
+        f"✅ *Pembayaran untuk invoice {invoice_number} telah berhasil "
+        f"diverifikasi. Pesanan Anda sedang diproses!*"
+    )
+
+    # WhatsApp: kirim lewat sesi WAHA (identitas user WA tak butuh token bot)
+    if user.channel == CHANNEL_WHATSAPP:
+        if _send_waha_text(_waha_chat_id(user), text):
+            return {"sent": True, "detail": "Notifikasi WhatsApp (WAHA) terkirim."}
+        return {
+            "sent": False,
+            "detail": "Gagal mengirim notifikasi WAHA — periksa WAHA_BASE_URL/WHATSAPP_SESSION.",
+        }
+
+    # Telegram: token bot diambil dari tabel agent_configs (pulsa_agent)
     bot_token = get_agent_telegram_token(NOTIFY_AGENT_ID)
     if not bot_token:
         print(f"[NOTIF] Token Telegram '{NOTIFY_AGENT_ID}' belum diisi di Admin Panel — notifikasi dilewati.")
@@ -673,15 +694,10 @@ def _notify_buyer(invoice_number: str) -> dict:
             "sent": False,
             "detail": f"Token Telegram '{NOTIFY_AGENT_ID}' belum diisi di Admin Panel — notifikasi dilewati.",
         }
-
-    text = (
-        f"✅ *Pembayaran untuk invoice {invoice_number} telah berhasil "
-        f"diverifikasi. Pesanan Anda sedang diproses!*"
-    )
     try:
         resp = requests.post(
             f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json={"chat_id": order.telegram_id, "text": text, "parse_mode": "Markdown"},
+            json={"chat_id": user.platform_id, "text": text, "parse_mode": "Markdown"},
             timeout=15,
         )
         result = resp.json()
@@ -778,9 +794,9 @@ def list_chats():
     db = get_db()
     query = db.query(ChatHistory).options(joinedload(ChatHistory.user))
 
-    telegram_id = (request.args.get("telegram_id") or "").strip()
-    if telegram_id:
-        query = query.filter(ChatHistory.telegram_id == telegram_id)
+    user_id = request.args.get("user_id", type=int)
+    if user_id:
+        query = query.filter(ChatHistory.user_id == user_id)
 
     query = query.order_by(ChatHistory.created_at.desc())
     chats, meta = paginate(query, default_per_page=20)
@@ -800,21 +816,35 @@ def list_chat_users():
     db = get_db()
     rows = (
         db.query(
-            ChatHistory.telegram_id,
+            ChatHistory.user_id,
+            User.channel,
+            User.platform_id,
+            User.telegram_id,
             User.full_name,
             User.username,
             User.is_manual_mode,
             func.max(ChatHistory.created_at).label("last_message_at"),
             func.count(ChatHistory.id).label("total_messages"),
         )
-        .outerjoin(User, User.telegram_id == ChatHistory.telegram_id)
-        .group_by(ChatHistory.telegram_id, User.full_name, User.username, User.is_manual_mode)
+        .join(User, User.id == ChatHistory.user_id)
+        .group_by(
+            ChatHistory.user_id,
+            User.channel,
+            User.platform_id,
+            User.telegram_id,
+            User.full_name,
+            User.username,
+            User.is_manual_mode,
+        )
         .order_by(func.max(ChatHistory.created_at).desc())
         .all()
     )
     return ok(
         data=[
             {
+                "user_id": r.user_id,
+                "channel": r.channel,
+                "platform_id": r.platform_id,
                 "telegram_id": r.telegram_id,
                 "full_name": r.full_name,
                 "username": r.username,
@@ -827,16 +857,28 @@ def list_chat_users():
     )
 
 
-@app.route("/api/chats/<telegram_id>", methods=["GET"])
+@app.route("/api/chats/users/<agent_id>", methods=["GET"])
 @admin_required
 @api_endpoint
-def get_chat_history(telegram_id: str):
-    """Seluruh riwayat chat satu pengguna, kronologis (lama -> baru)."""
+def list_chat_users_by_agent(agent_id: str):
+    """Daftar pengguna unik yang pernah chat dengan SATU agent —
+    view dua tahap Admin Panel (pilih agent -> pilih kontak)."""
+    return ok(data=get_chatted_users(agent_id))
+
+
+@app.route("/api/chats/<int:user_id>", methods=["GET"])
+@admin_required
+@api_endpoint
+def get_user_chat_history(user_id: int):
+    """Seluruh riwayat chat satu pengguna lintas agent, kronologis."""
     db = get_db()
+    user = db.get(User, user_id)
+    if user is None:
+        return err("Pengguna tidak ditemukan.", 404)
     chats = (
         db.query(ChatHistory)
         .options(joinedload(ChatHistory.user))
-        .filter(ChatHistory.telegram_id == telegram_id)
+        .filter(ChatHistory.user_id == user_id)
         .order_by(ChatHistory.created_at.asc(), ChatHistory.id.asc())
         .all()
     )
@@ -844,10 +886,13 @@ def get_chat_history(telegram_id: str):
         return err("Tidak ada riwayat chat untuk pengguna tersebut.", 404)
     return ok(
         data={
-            "telegram_id": telegram_id,
-            "full_name": chats[0].user.full_name if chats[0].user else None,
-            "username": chats[0].user.username if chats[0].user else None,
-            "is_manual_mode": bool(chats[0].user.is_manual_mode) if chats[0].user else False,
+            "user_id": user_id,
+            "channel": user.channel,
+            "platform_id": user.platform_id,
+            "telegram_id": user.telegram_id,
+            "full_name": user.full_name,
+            "username": user.username,
+            "is_manual_mode": bool(user.is_manual_mode),
             "messages": [
                 {
                     "id": c.id,
@@ -862,87 +907,73 @@ def get_chat_history(telegram_id: str):
     )
 
 
-@app.route("/api/chats/users/<agent_id>", methods=["GET"])
+@app.route("/api/chats/<agent_id>/<int:user_id>", methods=["GET"])
 @admin_required
 @api_endpoint
-def list_chat_users_by_agent(agent_id: str):
-    """Daftar pengguna unik yang pernah chat dengan SATU agent —
-    view dua tahap Admin Panel (pilih agent -> pilih kontak)."""
-    return ok(data=get_chatted_users(agent_id))
-
-
-@app.route("/api/chats/<agent_id>/<telegram_id>", methods=["GET"])
-@admin_required
-@api_endpoint
-def get_agent_user_chat(agent_id: str, telegram_id: str):
+def get_agent_user_chat(agent_id: str, user_id: int):
     """Riwayat chat SATU user dengan SATU agent (kronologis).
     404 bila kombinasi user/agent tidak memiliki riwayat."""
-    data = fetch_agent_chat_history(telegram_id, agent_id)
+    data = fetch_agent_chat_history(user_id, agent_id)
     if data is None:
         return err("Tidak ada riwayat chat untuk kombinasi pengguna & agent tersebut.", 404)
     return ok(data=data)
 
 
-@app.route("/api/chats/<telegram_id>/toggle-mode", methods=["POST"])
+@app.route("/api/chats/<int:user_id>/toggle-mode", methods=["POST"])
 @admin_required
 @api_endpoint
-def toggle_manual_mode(telegram_id: str):
+def toggle_manual_mode(user_id: int):
     """Human Takeover: bolak-balikkan is_manual_mode milik user.
     True = AI dinonaktifkan untuk user tsb, admin membalas manual.
     """
     db = get_db()
-    user = db.query(User).filter_by(telegram_id=telegram_id).first()
+    user = db.get(User, user_id)
     if user is None:
-        # Pengguna belum tercatat (belum pernah chat): buat barisnya dulu
-        user = User(telegram_id=telegram_id)
-        db.add(user)
-        db.flush()
+        return err("Pengguna tidak ditemukan.", 404)
 
     user.is_manual_mode = not user.is_manual_mode
     db.commit()
     status_txt = "diaktifkan — AI berhenti membalas" if user.is_manual_mode else "dinonaktifkan — AI kembali menangani"
     return ok(
-        data={"telegram_id": telegram_id, "is_manual_mode": user.is_manual_mode},
+        data={"user_id": user.id, "is_manual_mode": user.is_manual_mode},
         message=f"Manual Mode {status_txt}.",
     )
 
 
-def _send_manual_reply(db, telegram_id: str, agent_id: str, message: str):
-    """Kirim balasan manual admin via bot milik agent tertentu, lalu catat
-    ke chat_histories (model_name='Human/Admin', input='[Admin Reply]').
+def _send_manual_reply(db, user: User, agent_id: str, message: str):
+    """Kirim balasan manual admin ke user sesuai channel-nya (Telegram via
+    bot milik agent; WhatsApp via sesi WAHA), lalu catat ke chat_histories
+    (model_name='Human/Admin', input='[Admin Reply]').
 
-    Token diambil dari agent_configs milik agent_id — tiap agent mengirim
-    dari identitas botnya sendiri (bukan lagi satu token global). Melempar
-    ValueError untuk validasi gagal; mengembalikan respons Flask (ok/err).
+    Untuk Telegram, token diambil dari agent_configs milik agent_id — tiap
+    agent mengirim dari identitas botnya sendiri. Melempar ValueError untuk
+    validasi gagal; mengembalikan respons Flask (ok/err).
     """
-    bot_token = get_agent_telegram_token(agent_id)
-    if not bot_token:
-        raise ValueError(
-            f"Token Telegram '{agent_id}' belum diisi di Admin Panel (Agent Config)."
-        )
+    if user.channel == CHANNEL_WHATSAPP:
+        if not _send_waha_text(_waha_chat_id(user), message):
+            return err("Gagal mengirim pesan via WAHA — periksa konfigurasi WAHA.", 502)
+    else:
+        bot_token = get_agent_telegram_token(agent_id)
+        if not bot_token:
+            raise ValueError(
+                f"Token Telegram '{agent_id}' belum diisi di Admin Panel (Agent Config)."
+            )
+        try:
+            resp = requests.post(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                json={"chat_id": user.platform_id, "text": message},
+                timeout=15,
+            )
+            result = resp.json()
+        except requests.RequestException as e:
+            return err(f"Gagal menghubungi Telegram: {e}", 502)
+        if not (result or {}).get("ok"):
+            desc = (result or {}).get("description", "tidak diketahui")
+            return err(f"Telegram menolak pesan: {desc}", 502)
 
-    # 1. Kirim pesan lewat Telegram Bot API
-    try:
-        resp = requests.post(
-            f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json={"chat_id": telegram_id, "text": message},
-            timeout=15,
-        )
-        result = resp.json()
-    except requests.RequestException as e:
-        return err(f"Gagal menghubungi Telegram: {e}", 502)
-    if not (result or {}).get("ok"):
-        desc = (result or {}).get("description", "tidak diketahui")
-        return err(f"Telegram menolak pesan: {desc}", 502)
-
-    # 2. Pastikan user tercatat (jaga FK chat_histories.telegram_id)
-    if db.query(User).filter_by(telegram_id=telegram_id).first() is None:
-        db.add(User(telegram_id=telegram_id))
-        db.flush()
-
-    # 3. Simpan riwayat, tercatat atas agent yang balasannya dikirim
+    # Simpan riwayat, tercatat atas agent yang balasannya dikirim
     chat = ChatHistory(
-        telegram_id=telegram_id,
+        user_id=user.id,
         agent_id=agent_id,
         model_name="Human/Admin",
         input="[Admin Reply]",
@@ -954,7 +985,7 @@ def _send_manual_reply(db, telegram_id: str, agent_id: str, message: str):
     return ok(
         data={
             "id": chat.id,
-            "telegram_id": telegram_id,
+            "user_id": user.id,
             "agent_id": agent_id,
             "model_name": "Human/Admin",
             "input": "[Admin Reply]",
@@ -969,39 +1000,29 @@ def _send_manual_reply(db, telegram_id: str, agent_id: str, message: str):
 @admin_required
 @api_endpoint
 def reply_chat():
-    """Balasan manual per-agent — payload WAJIB memuat agent_id.
+    """Balasan manual per-agent — payload WAJIB memuat agent_id & user_id.
 
-    Payload: {"telegram_id": "...", "agent_id": "...", "message": "..."}
-    Pesan dikirim dari bot milik agent_id (token diambil dari database),
-    sehingga balasan CS terkirim dari bot CS, bukan bot penjualan.
+    Payload: {"user_id": 1, "agent_id": "...", "message": "..."}
+    Pesan dikirim sesuai channel user: Telegram memakai bot milik agent_id
+    (token dari database), WhatsApp memakai sesi WAHA.
     """
     db = get_db()
     body = request.get_json(silent=True) or {}
-    telegram_id = (body.get("telegram_id") or "").strip()
+    # Alias lama "telegram_id" tetap diterima demi kompatibilitas
+    user_id = body.get("user_id") or body.get("telegram_id")
     agent_id = (body.get("agent_id") or "").strip()
     message = (body.get("message") or "").strip()
 
-    if not telegram_id or not agent_id:
-        raise ValueError("Field 'telegram_id' dan 'agent_id' wajib diisi.")
+    if not user_id or not agent_id:
+        raise ValueError("Field 'user_id' dan 'agent_id' wajib diisi.")
     if not message:
         raise ValueError("Pesan tidak boleh kosong.")
 
-    return _send_manual_reply(db, telegram_id, agent_id, message)
+    user = db.get(User, int(user_id))
+    if user is None:
+        return err("Pengguna tidak ditemukan.", 404)
 
-
-@app.route("/api/chats/<telegram_id>/send", methods=["POST"])
-@admin_required
-@api_endpoint
-def send_manual_message(telegram_id: str):
-    """Endpoint lama (dipakai frontend saat ini): balasan manual lewat bot
-    penjualan (NOTIFY_AGENT_ID). Untuk per-agent, pakai POST /api/chats/reply.
-    """
-    db = get_db()
-    body = request.get_json(silent=True) or {}
-    message = (body.get("message") or "").strip()
-    if not message:
-        raise ValueError("Pesan tidak boleh kosong.")
-    return _send_manual_reply(db, telegram_id, NOTIFY_AGENT_ID, message)
+    return _send_manual_reply(db, user, agent_id, message)
 
 
 # =====================================================================
@@ -1013,6 +1034,19 @@ PUBLIC_BASE_URL = os.getenv(
     "PUBLIC_BASE_URL",
     "https://intern.exmp.fun",
 ).rstrip("/")
+
+# ---------------------------------------------------------------------
+# KONFIGURASI WAHA (WhatsApp HTTP API) — jalur keluar pesan WhatsApp.
+# Webhook masuk  : /webhook/whatsapp (WAHA mengirim update ke sini).
+# Kirim balasan  : POST {WAHA_BASE_URL}/api/sendText & /api/sendFile
+#                  atas nama sesi WAHA_SESSION.
+# ---------------------------------------------------------------------
+WAHA_BASE_URL = os.getenv("WAHA_BASE_URL", "http://localhost:3000").rstrip("/")
+WAHA_SESSION = os.getenv("WAHA_SESSION", "default")
+WAHA_API_KEY = os.getenv("WAHA_API_KEY") or None
+
+# Agent yang menangani percakapan WhatsApp (satu nomor WA = satu agent).
+WHATSAPP_AGENT_ID = os.getenv("WHATSAPP_AGENT_ID", "cs_agent")
 
 
 # Pesan offline saat agent dimatikan (identik dengan OFFLINE_MESSAGE bot)
@@ -1089,7 +1123,7 @@ def _get_gemini_client():
     return _gemini_client
 
 
-def _build_webhook_tools(agent_id: str, telegram_id: str) -> list:
+def _build_webhook_tools(agent_id: str, user: User) -> list:
     """Tool Gemini per agent — port dari bot.py (pulsa) & bot_cs.py (CS).
     Agent lain (baru) berjalan tanpa tool (Q&A murni)."""
     tools = []
@@ -1097,7 +1131,7 @@ def _build_webhook_tools(agent_id: str, telegram_id: str) -> list:
         def create_order_for_user(product_name: str, qty: int = 1, tax_rate: float = 0.0):
             """Buat pesanan baru untuk pengguna ini. Panggil dengan nama produk dan jumlah (qty).
             Nomor invoice, total bayar, dan status pembayaran dikembalikan otomatis."""
-            return create_new_order(product_name, qty=qty, tax_rate=tax_rate, telegram_id=telegram_id)
+            return create_new_order(product_name, qty=qty, tax_rate=tax_rate, user_id=user.id)
 
         tools.append(create_order_for_user)
     elif agent_id == "cs_agent":
@@ -1182,6 +1216,72 @@ def _send_telegram_photo(bot_token: str, chat_id: str, image_path) -> bool:
         return False
 
 
+# =====================================================================
+# PENGIRIMAN VIA WAHA (jalur keluar WhatsApp)
+# =====================================================================
+def _waha_headers() -> dict:
+    """Header dasar untuk API WAHA (plus X-Api-Key bila dikonfigurasi)."""
+    headers = {"Content-Type": "application/json"}
+    if WAHA_API_KEY:
+        headers["X-Api-Key"] = WAHA_API_KEY
+    return headers
+
+
+def _waha_chat_id(user: User) -> str:
+    """Susun chatId WAHA dari identitas user tersimpan.
+
+    Utamakan LID bila ada (format '<lid>@lid'); selain itu nomor telepon
+    ('<platform_id>@c.us') — sesuai bentuk asli pengirim di payload WAHA.
+    """
+    if user.whatsapp_lid:
+        return f"{user.whatsapp_lid}@lid"
+    return f"{user.platform_id}@c.us"
+
+
+def _send_waha_text(chat_id: str, text: str) -> bool:
+    """Kirim pesan teks WhatsApp via WAHA sendText. Best-effort."""
+    try:
+        resp = requests.post(
+            f"{WAHA_BASE_URL}/api/sendText",
+            headers=_waha_headers(),
+            json={"session": WAHA_SESSION, "chatId": chat_id, "text": text},
+            timeout=15,
+        )
+        if resp.status_code >= 400:
+            print(f"[WAHA] sendText ditolak ({resp.status_code}): {resp.text[:200]}")
+            return False
+        return True
+    except requests.RequestException as e:
+        print(f"[WAHA] Gagal mengirim pesan WhatsApp: {e}")
+        return False
+
+
+def _send_waha_file(chat_id: str, file_path) -> bool:
+    """Kirim file (mis. gambar promo) via WAHA sendFile (multipart)."""
+    if not file_path.exists():
+        print(f"[WAHA] File tidak ditemukan: {file_path}")
+        return False
+    headers = {}
+    if WAHA_API_KEY:
+        headers["X-Api-Key"] = WAHA_API_KEY
+    try:
+        with open(file_path, "rb") as f:
+            resp = requests.post(
+                f"{WAHA_BASE_URL}/api/sendFile",
+                headers=headers,
+                data={"session": WAHA_SESSION, "chatId": chat_id},
+                files={"file": f},
+                timeout=30,
+            )
+        if resp.status_code >= 400:
+            print(f"[WAHA] sendFile ditolak ({resp.status_code}): {resp.text[:200]}")
+            return False
+        return True
+    except (requests.RequestException, OSError) as e:
+        print(f"[WAHA] Gagal mengirim file WhatsApp: {e}")
+        return False
+
+
 def _extract_image_tags(text: str):
     """Pisahkan tag [GAMBAR: x] dari balasan AI.
 
@@ -1244,20 +1344,20 @@ def _get_redis():
     return _redis_client
 
 
-def _handle_toxic_strikes(agent_id: str, user_id: str, user_text: str,
-                          model_name: str) -> None:
+def _handle_toxic_strikes(agent_id: str, user: User, user_text: str,
+                          model_name: str, reply_target: str = None) -> None:
     """Catat pelanggaran bahasa toxic lalu kirim peringatan bertahap.
 
     Strike 1: peringatan sopan. Strike 2: peringatan tegas.
     Strike 3: pesan blokir + users.is_blocked=True (permanen, PostgreSQL)
     + hapus key Redis agar memori tidak menumpuk.
-    Best-effort: kegagalan Redis/Telegram tidak boleh melempar exception —
-    webhook harus tetap membalas 200 ke Telegram.
+    Best-effort: kegagalan Redis/pengiriman tidak boleh melempar exception —
+    webhook harus tetap membalas 200 ke platform asalnya.
     """
     # 1. INCR hitungan pelanggaran di Redis (TTL hanya di strike pertama)
     try:
         redis_client = _get_redis()
-        toxic_key = f"toxic_count:{user_id}"
+        toxic_key = f"toxic_count:{user.platform_id}"
         count = int(redis_client.incr(toxic_key))
         if count == 1:
             redis_client.expire(toxic_key, TOXIC_COUNT_TTL_SECONDS)
@@ -1267,25 +1367,28 @@ def _handle_toxic_strikes(agent_id: str, user_id: str, user_text: str,
 
     strike = min(count, 3)
     text = TOXIC_STRIKE_MESSAGES[strike]
-    print(f"[WEBHOOK:{agent_id}] TOXIC strike {strike} dari {user_id}")
+    print(f"[WEBHOOK:{agent_id}] TOXIC strike {strike} dari {user.platform_id}")
 
     if strike == 3:
         # Blokir permanen di PostgreSQL, lalu bersihkan key Redis
-        if set_user_blocked(user_id, True):
-            print(f"[WEBHOOK:{agent_id}] {user_id} DIBLOKIR permanen (3-Strike Rule).")
+        if set_user_blocked(user.platform_id, True, channel=user.channel):
+            print(f"[WEBHOOK:{agent_id}] {user.platform_id} DIBLOKIR permanen (3-Strike Rule).")
         try:
             redis_client.delete(toxic_key)
         except redis.RedisError:
             pass
 
-    # 2. Kirim pesan peringatan/blokir via bot milik agent (best-effort)
-    bot_token = get_agent_telegram_token(agent_id)
-    if bot_token:
-        _send_telegram_text(bot_token, user_id, text)
+    # 2. Kirim pesan peringatan/blokir sesuai channel user (best-effort)
+    if user.channel == CHANNEL_WHATSAPP:
+        _send_waha_text(reply_target or _waha_chat_id(user), text)
+    else:
+        bot_token = get_agent_telegram_token(agent_id)
+        if bot_token:
+            _send_telegram_text(bot_token, user.platform_id, text)
 
     # 3. Catat ke riwayat agar admin bisa melihat pesan toxic + respons sistem
     save_chat_history(
-        telegram_id=user_id,
+        user_id=user.id,
         agent_id=agent_id,
         model_name=model_name,
         user_input=user_text or "[pesan toxic]",
@@ -1293,11 +1396,18 @@ def _handle_toxic_strikes(agent_id: str, user_id: str, user_text: str,
     )
 
 
-def _process_agent_message(agent_id: str, user_id: str, user_text: str,
-                           image_bytes: bytes | None = None) -> None:
+def _process_agent_message(agent_id: str, user: User, user_text: str,
+                           image_bytes: bytes | None = None,
+                           reply_target: str = None) -> None:
     """Otak AI webhook — port alur reply() bot.py: susun prompt & riwayat
     dari database, panggil Gemini (multimodal: teks + gambar bila ada),
-    simpan riwayat, kirim balasan (teks bersih + gambar) ke user."""
+    simpan riwayat, kirim balasan (teks bersih + gambar) ke user sesuai
+    channel-nya (Telegram / WhatsApp-WAHA).
+
+    reply_target: alamat balasan mentah dari platform (wajib utk WhatsApp:
+    string 'from' utuh seperti '62812...@c.us'); Telegram memakai
+    user.platform_id bila tidak diberikan.
+    """
     from google.genai import types
 
     cfg = get_agent_config(agent_id)
@@ -1305,17 +1415,20 @@ def _process_agent_message(agent_id: str, user_id: str, user_text: str,
     temperature = cfg.temperature if cfg else 0.3
     model_name = (getattr(cfg, "model_name", None) or "gemini-2.5-flash")
 
-    bot_token = get_agent_telegram_token(agent_id)
-    if not bot_token:
-        print(f"[WEBHOOK] {agent_id}: token kosong — balasan tidak bisa dikirim.")
-        return
+    bot_token = None
+    if user.channel != CHANNEL_WHATSAPP:
+        # Telegram butuh token bot agent; WhatsApp mengirim lewat sesi WAHA
+        bot_token = get_agent_telegram_token(agent_id)
+        if not bot_token:
+            print(f"[WEBHOOK] {agent_id}: token kosong — balasan tidak bisa dikirim.")
+            return
 
     system_instruction = _build_system_instruction(base_prompt, agent_id)
-    tools = _build_webhook_tools(agent_id, user_id)
+    tools = _build_webhook_tools(agent_id, user)
 
     # Riwayat 10 giliran terakhir sebagai konteks (lama -> baru)
     history_contents = []
-    for chat in get_last_10_history(telegram_id=user_id, agent_id=agent_id):
+    for chat in get_last_10_history(user_id=user.id, agent_id=agent_id):
         history_contents.append(types.Content(role="user", parts=[types.Part.from_text(text=chat.input)]))
         history_contents.append(types.Content(role="model", parts=[types.Part.from_text(text=chat.output)]))
 
@@ -1364,25 +1477,33 @@ def _process_agent_message(agent_id: str, user_id: str, user_text: str,
     # JSON mentah TIDAK diteruskan ke user — ganti dengan peringatan/blokir,
     # lalu hentikan alur normal (tidak ada balasan AI & tidak kirim gambar).
     if TOXIC_INTENT_RE.search(bot_reply or ""):
-        _handle_toxic_strikes(agent_id, user_id, user_text, model_name)
+        _handle_toxic_strikes(agent_id, user, user_text, model_name,
+                              reply_target=reply_target)
         return
 
     # "Postman": parse tag [GAMBAR: x] — teks dikirim bersih tanpa tag,
-    # lalu file gambarnya dikirim via sendPhoto.
+    # lalu file gambarnya dikirim sesuai channel.
     clean_reply, image_files = _extract_image_tags(bot_reply)
 
     save_chat_history(
-        telegram_id=user_id,
+        user_id=user.id,
         agent_id=agent_id,
         model_name=model_name,
         user_input=user_text,
         bot_output=clean_reply,
     )
 
-    if clean_reply:
-        _send_telegram_text(bot_token, user_id, clean_reply)
-    for filename in image_files:
-        _send_telegram_photo(bot_token, user_id, BOT_IMAGES_DIR / filename)
+    if user.channel == CHANNEL_WHATSAPP:
+        target = reply_target or _waha_chat_id(user)
+        if clean_reply:
+            _send_waha_text(target, clean_reply)
+        for filename in image_files:
+            _send_waha_file(target, BOT_IMAGES_DIR / filename)
+    else:
+        if clean_reply:
+            _send_telegram_text(bot_token, user.platform_id, clean_reply)
+        for filename in image_files:
+            _send_telegram_photo(bot_token, user.platform_id, BOT_IMAGES_DIR / filename)
 
 
 @app.route("/webhook/<agent_id>", methods=["POST"])
@@ -1441,11 +1562,116 @@ def telegram_webhook(agent_id: str):
         print(f"[WEBHOOK:{agent_id}] {user_id} dalam manual mode -> AI diabaikan.")
         return jsonify({"status": "ok"}), 200
 
-    # Pastikan user tercatat (jaga FK chat_histories.telegram_id)
-    get_or_create_user(telegram_id=user_id, full_name=full_name, username=username)
+    # Pastikan user tercatat (identitas universal: users.id dipakai FK
+    # chat_histories & orders), lalu proses otak AI lewat helper bersama.
+    user = get_or_create_user(telegram_id=user_id, full_name=full_name, username=username)
+    if user is None:
+        # Gagal menyimpan user (mis. DB bermasalah): hentikan tanpa crash —
+        # Telegram tetap menerima 200 dan tidak mengulang update ini.
+        print(f"[WEBHOOK:{agent_id}] Gagal mencatat user {user_id} — update dilewati.")
+        return jsonify({"status": "ok"}), 200
 
     # Otak AI: proses, simpan riwayat, kirim balasan (semua di helper)
-    _process_agent_message(agent_id, user_id, user_text, image_bytes=image_bytes)
+    _process_agent_message(agent_id, user, user_text, image_bytes=image_bytes)
+
+    return jsonify({"status": "ok"}), 200
+
+
+# =====================================================================
+# WHATSAPP WEBHOOK (WAHA) — penerima update dari sesi WhatsApp.
+# WAHA mengirim event ke /webhook/whatsapp; alurpra-cek & otak AI
+# IDENTIK dengan webhook Telegram (gatekeeper blokir, agent aktif,
+# manual mode, 3-Strike Rule), hanya jalur masuk/keluar yang berbeda.
+# Selalu balas 200 agar WAHA tidak mengulang update yang sama.
+# =====================================================================
+@app.route("/webhook/whatsapp", methods=["POST"])
+def whatsapp_webhook():
+    """Penerima update WAHA.
+
+    Bentuk payload khas WAHA:
+        {"event": "message", "session": "default",
+         "payload": [{"id": "...", "from": "62812...@c.us", "fromMe": false,
+                      "hasMedia": false, "body": "halo",
+                      "sender": {"id": "...", "pushname": "Nama"}}]}
+
+    Identitas user dipecah lewat parse_waha_sender() (suffix '@c.us'/'@lid'
+    dibuang -> platform_id / whatsapp_lid), lalu diteruskan ke alur AI
+    milik WHATSAPP_AGENT_ID. Balasan dikirim via WAHA sendText/sendFile.
+    """
+    payload = request.get_json(silent=True) or {}
+
+    # Hanya event 'message' yang diproses (abaikan ack, presence, dsb.)
+    event = payload.get("event") or "message"
+    if event != "message":
+        return jsonify({"status": "ok"}), 200
+
+    messages = payload.get("payload") or []
+    if isinstance(messages, dict):  # beberapa setup WAHA mengirim objek tunggal
+        messages = [messages]
+
+    for msg in messages:
+        if not isinstance(msg, dict) or msg.get("fromMe"):
+            # fromMe = pesan keluaran sesi bot sendiri -> jangan diproses
+            continue
+
+        raw_from = (msg.get("from") or "").strip()
+
+        # Lewati chat grup (@g.us) & broadcast/status (@broadcast) — bot hanya
+        # melayani chat pribadi 1-on-1; identitas grup bukan nomor telepon.
+        if raw_from.endswith("@g.us") or raw_from.endswith("@broadcast"):
+            continue
+
+        ident = parse_waha_sender(raw_from)
+        platform_id = ident["platform_id"]
+        sender = msg.get("sender") or {}
+        full_name = (
+            sender.get("pushname") or sender.get("verifiedName")
+            or sender.get("shortName") or None
+        )
+        user_text = (msg.get("body") or "").strip()
+
+        print(f"[WEBHOOK:whatsapp] dari={full_name or '?'} ({raw_from or '?'}): "
+              f"{user_text[:80] or '(tanpa teks)'}")
+
+        if not platform_id or (not user_text and not msg.get("hasMedia")):
+            continue
+
+        # Pra-cek 0 (3-Strike Rule): user diblokir diabaikan total —
+        # gatekeeper yang sama persis dengan webhook Telegram.
+        if is_user_blocked(platform_id, CHANNEL_WHATSAPP):
+            print(f"[WEBHOOK:whatsapp] {platform_id} diblokir -> update diabaikan (gatekeeper).")
+            continue
+
+        # Media (gambar/dokumen) via WAHA belum masuk alur AI saat ini
+        if msg.get("hasMedia"):
+            print(f"[WEBHOOK:whatsapp] Pesan media dari {raw_from} diabaikan (belum didukung).")
+            continue
+        if not user_text:
+            continue
+
+        # Pra-cek 1: agent WhatsApp dimatikan superadmin -> pesan offline
+        if not is_agent_active(WHATSAPP_AGENT_ID):
+            print(f"[WEBHOOK:whatsapp] agent '{WHATSAPP_AGENT_ID}' non-aktif -> pesan offline.")
+            _send_waha_text(raw_from, WEBHOOK_OFFLINE_MESSAGE)
+            continue
+
+        # Pra-cek 2: Human Takeover -> AI diam, admin membalas manual
+        if is_user_in_manual_mode(platform_id, CHANNEL_WHATSAPP):
+            print(f"[WEBHOOK:whatsapp] {platform_id} dalam manual mode -> AI diabaikan.")
+            continue
+
+        # Catat/ambil user lalu proses otak AI; balasan dikirim ke alamat
+        # mentah 'from' agar WAHA membalas ke chat yang benar (@c.us/@lid).
+        user = get_or_create_user(
+            full_name=full_name,
+            channel=ident["channel"],
+            platform_id=platform_id,
+            whatsapp_lid=ident["whatsapp_lid"],
+        )
+        if user is None:
+            print(f"[WEBHOOK:whatsapp] Gagal mencatat user {platform_id} — update dilewati.")
+            continue
+        _process_agent_message(WHATSAPP_AGENT_ID, user, user_text, reply_target=raw_from)
 
     return jsonify({"status": "ok"}), 200
 

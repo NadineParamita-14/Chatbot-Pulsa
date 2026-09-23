@@ -60,15 +60,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = str(user.id)
-    
+
     # Menangkap teks (baik dari pesan biasa maupun caption gambar)
     user_text = update.message.text or update.message.caption or ""
 
-    get_or_create_user(
+    app_user = get_or_create_user(
         telegram_id=user_id,
         full_name=user.full_name,
         username=user.username
     )
+    if app_user is None:
+        return  # gagal mencatat user (mis. DB bermasalah) -> hentikan
 
     if is_user_in_manual_mode(user_id):
         return
@@ -106,14 +108,14 @@ ATURAN WAJIB TERKAIT PRODUK:
 4. ABAIKAN sisa stok yang pernah kamu sebutkan di riwayat chat sebelumnya, gunakan data TERKINI.
 """
 
-    past_chats = get_last_10_history(telegram_id=user_id, agent_id=CURRENT_AGENT_ID)
+    past_chats = get_last_10_history(user_id=app_user.id, agent_id=CURRENT_AGENT_ID)
     history_contents = []
     for chat in past_chats:
         history_contents.append(types.Content(role="user", parts=[types.Part.from_text(text=chat.input)]))
         history_contents.append(types.Content(role="model", parts=[types.Part.from_text(text=chat.output)]))
 
     def create_order_for_user(product_name: str, qty: int = 1, tax_rate: float = 0.0):
-        return create_new_order(product_name, qty=qty, tax_rate=tax_rate, telegram_id=user_id)
+        return create_new_order(product_name, qty=qty, tax_rate=tax_rate, user_id=app_user.id)
 
     # --- LOGIKA PENERIMA GAMBAR DARI USER ---
     photo_part = None
@@ -149,7 +151,7 @@ ATURAN WAJIB TERKAIT PRODUK:
         bot_reply = f"Maaf, terjadi kendala pada layanan: {e}"
 
     save_chat_history(
-        telegram_id=user_id,
+        user_id=app_user.id,
         agent_id=CURRENT_AGENT_ID,
         model_name=selected_model,
         user_input=user_text,

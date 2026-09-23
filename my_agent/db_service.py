@@ -13,25 +13,115 @@ from models import (
     Order,
     OrderItem,
     OrderPayment,
+    CHANNEL_TELEGRAM,
+    CHANNEL_WHATSAPP,
 )
 
 
-def get_or_create_user(telegram_id: str, full_name: str, username: str = None):
-    """Mencatat user baru ke tabel users atau mengembalikan data jika sudah ada."""
+# =====================================================================
+# IDENTITAS MULTI-CHANNEL (Telegram + WhatsApp via WAHA)
+# Satu user = satu baris di tabel users, diidentifikasi lewat kombinasi
+# (channel, platform_id). platform_id adalah ID routing utama pengirim:
+#   - telegram : chat ID Telegram (telegram_id ikut terisi nilainya)
+#   - whatsapp : nomor WA tanpa '@c.us' (atau LID tanpa '@lid')
+# =====================================================================
+def parse_waha_sender(raw: str) -> dict:
+    """Pecah sender ID WhatsApp dari payload WAHA menjadi kolom identitas.
+
+    Contoh:
+      '6281234567890@c.us'   -> {'channel': 'whatsapp',
+                                 'platform_id': '6281234567890',
+                                 'whatsapp_lid': None}
+      '998345678901234@lid'  -> {'channel': 'whatsapp',
+                                 'platform_id': '998345678901234',
+                                 'whatsapp_lid': '998345678901234'}
+
+    Akhiran '@c.us' (nomor telepon) dan '@lid' (LID internal WA) dibuang;
+    string tanpa akhiran dianggap nomor telepon polos.
+    """
+    raw = (raw or "").strip()
+    if raw.lower().endswith("@lid"):
+        lid = raw[:-len("@lid")]
+        return {
+            "channel": CHANNEL_WHATSAPP,
+            "platform_id": lid,
+            "whatsapp_lid": lid or None,
+        }
+    if raw.lower().endswith("@c.us"):
+        raw = raw[: -len("@c.us")]
+    return {
+        "channel": CHANNEL_WHATSAPP,
+        "platform_id": raw,
+        "whatsapp_lid": None,
+    }
+
+
+def get_user_by_route(channel: str, platform_id: str):
+    """Cari user berdasar kombinasi channel + platform_id (routing utama)."""
+    session = SessionLocal()
+    try:
+        return (
+            session.query(User)
+            .filter_by(channel=channel, platform_id=str(platform_id))
+            .first()
+        )
+    finally:
+        session.close()
+
+
+def get_or_create_user(
+    telegram_id: str = None,
+    full_name: str = None,
+    username: str = None,
+    channel: str = CHANNEL_TELEGRAM,
+    platform_id: str = None,
+    whatsapp_lid: str = None,
+):
+    """Catat user baru atau ambil yang sudah ada berdasar channel + platform_id.
+
+    Kompatibel dengan pemanggil lama: get_or_create_user(telegram_id=..., ...)
+    otomatis dipetakan ke channel 'telegram' dengan platform_id = telegram_id.
+    Untuk WhatsApp, panggil dengan channel='whatsapp', platform_id=nomor WA,
+    dan whatsapp_lid bila tersedia (lihat parse_waha_sender).
+    """
+    if platform_id is None:
+        platform_id = telegram_id  # jalur pemanggil lama (Telegram)
+    platform_id = str(platform_id).strip() if platform_id is not None else None
+    if not platform_id:
+        print("✗ Gagal menyimpan user: platform_id kosong")
+        return None
+    channel = (channel or CHANNEL_TELEGRAM).strip().lower()
+
+    # Telegram: chat ID sekaligus menjadi telegram_id-nya
+    if channel == CHANNEL_TELEGRAM and telegram_id is None:
+        telegram_id = platform_id
+    if telegram_id is not None:
+        telegram_id = str(telegram_id)
+    if whatsapp_lid is not None:
+        whatsapp_lid = str(whatsapp_lid)
+
     session = SessionLocal()
     try:
         user = (
-            session.query(User).filter_by(telegram_id=str(telegram_id)).first()
+            session.query(User)
+            .filter_by(channel=channel, platform_id=platform_id)
+            .first()
         )
         if not user:
             user = User(
-                telegram_id=str(telegram_id),
+                channel=channel,
+                platform_id=platform_id,
+                telegram_id=telegram_id,
+                whatsapp_lid=whatsapp_lid,
                 full_name=full_name,
                 username=username,
             )
             session.add(user)
             session.commit()
-            print(f"✓ User baru disimpan: {full_name} ({telegram_id})")
+            session.refresh(user)  # muat ulang atribut agar aman dibaca
+            # setelah session ditutup (expire_on_commit)
+            print(f"✓ User baru disimpan: {full_name or '(tanpa nama)'} "
+                  f"({channel}:{platform_id})")
         return user
     except Exception as e:
         session.rollback()
@@ -195,16 +285,17 @@ def get_agent_config(agent_id: str):
 
 
 def save_chat_history(
-    telegram_id: str,
+    user_id: int,
     agent_id: str,
     user_input: str,
     bot_output: str,
     model_name: str = None,
 ):
+    """Catat satu giliran percakapan milik user (users.id)."""
     session = SessionLocal()
     try:
         history = ChatHistory(
-            telegram_id=str(telegram_id),
+            user_id=user_id,
             agent_id=agent_id,
             model_name=model_name,
             input=user_input,
@@ -219,12 +310,13 @@ def save_chat_history(
         session.close()
 
 
-def get_last_10_history(telegram_id: str, agent_id: str):
+def get_last_10_history(user_id: int, agent_id: str):
+    """10 giliran terakhir satu user dengan satu agent (lama -> baru)."""
     session = SessionLocal()
     try:
         records = (
             session.query(ChatHistory)
-            .filter_by(telegram_id=str(telegram_id), agent_id=agent_id)
+            .filter_by(user_id=user_id, agent_id=agent_id)
             .order_by(ChatHistory.created_at.desc())
             .limit(10)
             .all()
@@ -238,24 +330,33 @@ def get_chatted_users(agent_id: str):
     """Daftar pengguna unik yang pernah chat dengan SATU agent tertentu.
 
     Dipakai Admin Panel (view dua tahap: pilih agent -> pilih user).
-    Diurutkan dari pesan terakhir (terbaru di atas). Mengembalikan list
-    of dict agar aman dibaca setelah session ditutup.
+    Diurutkan dari pesan terakhir (terbaru di atas). Identitas yang
+    dikembalikan adalah user_id (users.id) plus channel/platform_id —
+    bukan lagi telegram_id — agar mendukung multi-channel.
     """
     session = SessionLocal()
     try:
         rows = (
             session.query(
-                ChatHistory.telegram_id,
+                ChatHistory.user_id,
+                User.channel,
+                User.platform_id,
+                User.telegram_id,
+                User.whatsapp_lid,
                 User.full_name,
                 User.username,
                 User.is_manual_mode,
                 func.max(ChatHistory.created_at).label("last_message_at"),
                 func.count(ChatHistory.id).label("total_messages"),
             )
-            .outerjoin(User, User.telegram_id == ChatHistory.telegram_id)
+            .join(User, User.id == ChatHistory.user_id)
             .filter(ChatHistory.agent_id == agent_id)
             .group_by(
-                ChatHistory.telegram_id,
+                ChatHistory.user_id,
+                User.channel,
+                User.platform_id,
+                User.telegram_id,
+                User.whatsapp_lid,
                 User.full_name,
                 User.username,
                 User.is_manual_mode,
@@ -265,7 +366,11 @@ def get_chatted_users(agent_id: str):
         )
         return [
             {
+                "user_id": r.user_id,
+                "channel": r.channel,
+                "platform_id": r.platform_id,
                 "telegram_id": r.telegram_id,
+                "whatsapp_lid": r.whatsapp_lid,
                 "full_name": r.full_name,
                 "username": r.username,
                 "is_manual_mode": bool(r.is_manual_mode),
@@ -278,7 +383,7 @@ def get_chatted_users(agent_id: str):
         session.close()
 
 
-def get_chat_history(telegram_id: str, agent_id: str):
+def get_chat_history(user_id: int, agent_id: str):
     """Seluruh riwayat chat SATU user dengan SATU agent, kronologis.
 
     Mengembalikan dict (profil user + daftar pesan) atau None bila
@@ -286,11 +391,11 @@ def get_chat_history(telegram_id: str, agent_id: str):
     """
     session = SessionLocal()
     try:
-        user = session.query(User).filter_by(telegram_id=str(telegram_id)).first()
+        user = session.get(User, user_id)
         chats = (
             session.query(ChatHistory)
             .filter(
-                ChatHistory.telegram_id == str(telegram_id),
+                ChatHistory.user_id == user_id,
                 ChatHistory.agent_id == agent_id,
             )
             .order_by(ChatHistory.created_at.asc(), ChatHistory.id.asc())
@@ -299,8 +404,11 @@ def get_chat_history(telegram_id: str, agent_id: str):
         if not chats:
             return None
         return {
-            "telegram_id": str(telegram_id),
+            "user_id": user_id,
             "agent_id": agent_id,
+            "channel": user.channel if user else None,
+            "platform_id": user.platform_id if user else None,
+            "telegram_id": user.telegram_id if user else None,
             "full_name": user.full_name if user else None,
             "username": user.username if user else None,
             "is_manual_mode": bool(user.is_manual_mode) if user else False,
@@ -364,13 +472,13 @@ def get_products_json_string():
 
 
 def create_new_order(
-    product_name: str, qty: int = 1, tax_rate: float = 0.0, telegram_id: str = None
+    product_name: str, qty: int = 1, tax_rate: float = 0.0, user_id: int = None
 ):
     """Membuat pesanan baru dengan mencatat total_items ke orders dan orders_items.
 
-    telegram_id bersifat opsional: diisi otomatis oleh bot (lewat wrapper
+    user_id bersifat opsional: diisi otomatis oleh bot (lewat wrapper
     create_order_for_user) agar pesanan terikat ke user pemiliknya —
-    dipakai webhook pembayaran untuk mengirim notifikasi Telegram.
+    dipakai webhook pembayaran untuk mengirim notifikasi sesuai channel.
     """
     session = SessionLocal()
     try:
@@ -406,7 +514,7 @@ def create_new_order(
             tax=tax,
             total_amount=total_amount,
             total_items=qty,
-            telegram_id=telegram_id,
+            user_id=user_id,
         )
         session.add(new_order)
         session.flush()
@@ -676,13 +784,19 @@ def check_order_status(invoice_number: str):
         session.close()
 
 
-def is_user_in_manual_mode(telegram_id: str) -> bool:
-    """True bila user sedang dalam mode manual (Human Takeover).
-    Dipakai bot untuk memutuskan apakah pesan perlu dijawab AI atau diabaikan.
+def is_user_in_manual_mode(platform_id: str, channel: str = CHANNEL_TELEGRAM) -> bool:
+    """True bila user (channel + platform_id) sedang dalam mode manual (Human
+    Takeover). Dipakai bot/webhook untuk memutuskan apakah pesan perlu
+    dijawab AI atau diabaikan. Pemanggil Telegram lama tetap kompatibel:
+    platform_id = chat ID (channel default 'telegram').
     """
     session = SessionLocal()
     try:
-        user = session.query(User).filter_by(telegram_id=str(telegram_id)).first()
+        user = (
+            session.query(User)
+            .filter_by(channel=channel, platform_id=str(platform_id))
+            .first()
+        )
         return bool(user and user.is_manual_mode)
     except Exception as e:
         print(f"✗ Gagal cek mode manual: {e}")
@@ -691,7 +805,7 @@ def is_user_in_manual_mode(telegram_id: str) -> bool:
         session.close()
 
 
-def is_user_blocked(telegram_id: str) -> bool:
+def is_user_blocked(platform_id: str, channel: str = CHANNEL_TELEGRAM) -> bool:
     """True bila user telah diblokir permanen (3-Strike Rule bahasa toxic).
 
     Dipakai webhook sebagai gatekeeper paling awal: user yang diblokir
@@ -701,7 +815,11 @@ def is_user_blocked(telegram_id: str) -> bool:
     """
     session = SessionLocal()
     try:
-        user = session.query(User).filter_by(telegram_id=str(telegram_id)).first()
+        user = (
+            session.query(User)
+            .filter_by(channel=channel, platform_id=str(platform_id))
+            .first()
+        )
         return bool(user and user.is_blocked)
     except Exception as e:
         print(f"✗ Gagal cek status blokir user: {e}")
@@ -710,14 +828,25 @@ def is_user_blocked(telegram_id: str) -> bool:
         session.close()
 
 
-def set_user_blocked(telegram_id: str, blocked: bool = True) -> bool:
+def set_user_blocked(
+    platform_id: str, blocked: bool = True, channel: str = CHANNEL_TELEGRAM
+) -> bool:
     """Set status blokir permanen user (3-Strike Rule) di tabel users.
     Baris user belum ada -> dibuat dulu. Mengembalikan True bila sukses."""
     session = SessionLocal()
     try:
-        user = session.query(User).filter_by(telegram_id=str(telegram_id)).first()
+        user = (
+            session.query(User)
+            .filter_by(channel=channel, platform_id=str(platform_id))
+            .first()
+        )
         if user is None:
-            user = User(telegram_id=str(telegram_id), is_blocked=blocked)
+            user = User(
+                channel=channel,
+                platform_id=str(platform_id),
+                telegram_id=str(platform_id) if channel == CHANNEL_TELEGRAM else None,
+                is_blocked=blocked,
+            )
             session.add(user)
         else:
             user.is_blocked = blocked

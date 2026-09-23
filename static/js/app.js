@@ -579,7 +579,9 @@ function verifyCurrentOrder() {
 // Tahap 1    : daftar kartu agent   -> #chat-agent-view
 // Tahap 2    : layout 2-pane WhatsApp -> #chat-room-view
 //              Pane kiri  : kontak dari GET /chats/users/<agent_id>
-//              Pane kanan : percakapan dari GET /chats/<agent_id>/<telegram_id>
+//              Pane kanan : percakapan dari GET /chats/<agent_id>/<user_id>
+// Kontak diidentifikasi lewat user_id (users.id) — mendukung pengguna
+// Telegram maupun WhatsApp (kolom channel/platform_id).
 // =====================================================================
 const chatsState = { agentId: null, activeId: null, users: [], isManualMode: false };
 
@@ -702,7 +704,7 @@ async function renderChatUserListPane() {
   chatsState.users = res.data;
 
   // Pertahankan seleksi bila pengguna masih ada di daftar
-  if (chatsState.activeId && !chatsState.users.some((u) => u.telegram_id === chatsState.activeId)) {
+  if (chatsState.activeId && !chatsState.users.some((u) => u.user_id === chatsState.activeId)) {
     chatsState.activeId = null;
   }
 
@@ -717,10 +719,13 @@ function renderChatUserList() {
   listEl.innerHTML = chatsState.users.length
     ? chatsState.users
         .map((u) => {
-          const isActive = u.telegram_id === chatsState.activeId;
-          const name = u.full_name || u.username || `User ${u.telegram_id}`;
+          const isActive = u.user_id === chatsState.activeId;
+          const name = u.full_name || u.username || `User ${u.platform_id}`;
+          const channelBadge = u.channel === "whatsapp"
+            ? `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">WA</span>`
+            : `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 font-semibold">TG</span>`;
           return `
-      <button data-telegram-id="${esc(u.telegram_id)}"
+      <button data-user-id="${esc(u.user_id)}"
         class="w-full text-left px-4 py-3 flex items-center gap-3 transition ${
           isActive ? "bg-teal-50" : "hover:bg-slate-50"
         }">
@@ -733,8 +738,9 @@ function renderChatUserList() {
             <span class="text-[10px] text-slate-400 whitespace-nowrap">${formatTime(u.last_message_at)}</span>
           </div>
           <div class="flex items-center justify-between gap-2">
-            <p class="text-xs text-slate-500 font-mono truncate">${esc(u.telegram_id)}</p>
+            <p class="text-xs text-slate-500 font-mono truncate">${esc(u.platform_id || "")}</p>
             <span class="flex items-center gap-1 flex-shrink-0">
+              ${channelBadge}
               ${u.is_manual_mode ? `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600 font-semibold">Manual</span>` : ""}
               <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">${u.total_messages} pesan</span>
             </span>
@@ -745,34 +751,35 @@ function renderChatUserList() {
         .join("")
     : `<div class="px-4 py-10 text-center text-sm text-slate-400">Belum ada pengguna yang chat.</div>`;
 
-  listEl.querySelectorAll("button[data-telegram-id]").forEach((btn) => {
-    btn.addEventListener("click", () => selectChatUser(btn.dataset.telegramId));
+  listEl.querySelectorAll("button[data-user-id]").forEach((btn) => {
+    btn.addEventListener("click", () => selectChatUser(Number(btn.dataset.userId)));
   });
 }
 
 /** Klik kontak: ambil & render percakapan, lalu gulir ke bawah. */
-async function selectChatUser(telegramId) {
-  chatsState.activeId = telegramId;
+async function selectChatUser(userId) {
+  chatsState.activeId = userId;
   renderChatUserList(); // perbarui sorotan kontak aktif
   paintChatPanes();     // di mobile: pindah dari daftar ke jendela chat
-  await loadChatConversation(telegramId);
+  await loadChatConversation(userId);
 }
 
 /** Ambil riwayat percakapan pengguna dan render sebagai gelembung.
  *  Sekaligus sinkronkan status Manual Mode pada toggle & input. */
-async function loadChatConversation(telegramId) {
+async function loadChatConversation(userId) {
   const bubblesEl = document.getElementById("chat-bubbles");
   setLoading(bubblesEl);
 
   const res = await Api.get(
-    `/chats/${encodeURIComponent(chatsState.agentId)}/${encodeURIComponent(telegramId)}`
+    `/chats/${encodeURIComponent(chatsState.agentId)}/${encodeURIComponent(userId)}`
   );
   const conv = res.data;
 
-  // Header jendela chat: nama + Telegram ID pengguna terpilih
-  const name = conv.full_name || conv.username || `User ${conv.telegram_id}`;
+  // Header jendela chat: nama + platform ID pengguna terpilih
+  const name = conv.full_name || conv.username || `User ${conv.platform_id}`;
+  const channelLabel = conv.channel === "whatsapp" ? "WhatsApp" : "Telegram";
   document.getElementById("chat-header-name").textContent = name;
-  document.getElementById("chat-header-id").textContent = conv.telegram_id;
+  document.getElementById("chat-header-id").textContent = `${channelLabel} · ${conv.platform_id || ""}`;
   document.getElementById("chat-header-avatar").textContent = name.charAt(0).toUpperCase();
 
   // Status Human Takeover user ini -> UI toggle & input
@@ -850,7 +857,7 @@ function applyManualModeUI() {
   label.className = `text-xs font-medium ${isManual ? "text-teal-600" : "text-slate-500"}`;
 }
 
-/** Kirim pesan manual admin ke Telegram user.
+/** Kirim pesan manual admin ke pengguna (Telegram/WhatsApp sesuai channel).
  *  Pesan langsung ditambahkan ke UI tanpa menunggu reload percakapan. */
 async function sendManualMessage() {
   const input = document.getElementById("chat-input");
@@ -866,10 +873,11 @@ async function sendManualMessage() {
   input.disabled = true;
   sendBtn.disabled = true;
   try {
-    // Balasan dikirim dari bot milik agent yang chatnya sedang dibuka —
-    // payload WAJIB memuat agent_id agar backend memakai token yang benar.
+    // Balasan dikirim ke user_id terpilih (backend pilih jalur Telegram/
+    // WAHA sesuai channel-nya) dari identitas bot milik agent terpilih —
+    // payload WAJIB memuat agent_id & user_id.
     const res = await Api.post("/chats/reply", {
-      telegram_id: chatsState.activeId,
+      user_id: chatsState.activeId,
       agent_id: chatsState.agentId,
       message,
     });

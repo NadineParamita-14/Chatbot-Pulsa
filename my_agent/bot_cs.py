@@ -79,11 +79,13 @@ async def reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
 
     # 1. Pastikan user tercatat di tabel users
-    get_or_create_user(
+    app_user = get_or_create_user(
         telegram_id=user_id,
         full_name=user.full_name,
         username=user.username
     )
+    if app_user is None:
+        return  # gagal mencatat user (mis. DB bermasalah) -> hentikan
 
     # 1.5 Human Takeover: saat admin mengambil alih percakapan (manual mode),
     # bot harus diam — pesan tidak diproses AI dan tidak dibalas otomatis.
@@ -126,7 +128,7 @@ ATURAN WAJIB CUSTOMER SERVICE:
 """
 
     # 5. Susun riwayat chat
-    past_chats = get_last_10_history(telegram_id=user_id, agent_id=CURRENT_AGENT_ID)
+    past_chats = get_last_10_history(user_id=app_user.id, agent_id=CURRENT_AGENT_ID)
     history_contents = []
     for chat in past_chats:
         history_contents.append(types.Content(role="user", parts=[types.Part.from_text(text=chat.input)]))
@@ -150,7 +152,7 @@ ATURAN WAJIB CUSTOMER SERVICE:
 
     # 7. Simpan riwayat chat beserta model yang aktif
     save_chat_history(
-        telegram_id=user_id,
+        user_id=app_user.id,
         agent_id=CURRENT_AGENT_ID,
         model_name=selected_model,
         user_input=user_text,

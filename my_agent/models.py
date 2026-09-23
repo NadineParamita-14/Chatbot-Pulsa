@@ -33,11 +33,28 @@ class ModelAgent(Base):
 # ==========================================
 # 2. TABEL: Users / Customers
 # ==========================================
+# Nilai kolom users.channel — asal channel pesan pengguna
+CHANNEL_TELEGRAM = "telegram"
+CHANNEL_WHATSAPP = "whatsapp"
+
+
 class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    telegram_id = Column(String(50), unique=True, nullable=False, index=True)
+
+    # ---- Identitas multi-channel (Telegram + WhatsApp via WAHA) ----
+    # platform_id = ID routing utama pengirim: chat ID Telegram ATAU nomor
+    # WhatsApp tanpa akhiran @c.us (lihat db_service.parse_waha_sender).
+    channel = Column(String(20), default=CHANNEL_TELEGRAM, nullable=False)
+    platform_id = Column(String(50), unique=True, nullable=False, index=True)
+
+    # telegram_id kini nullable: user WhatsApp tidak memilikinya.
+    telegram_id = Column(String(50), unique=True, nullable=True, index=True)
+
+    # LID WhatsApp tanpa akhiran @lid (identitas internal pengirim WA).
+    whatsapp_lid = Column(String(50), unique=True, nullable=True, index=True)
+
     full_name = Column(String(100), nullable=True)
     username = Column(String(100), nullable=True)
 
@@ -137,9 +154,11 @@ class ChatHistory(Base):
     __tablename__ = "chat_histories"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    telegram_id = Column(String(50), ForeignKey("users.telegram_id"), nullable=False, index=True)
+
+    # Pemilik percakapan: FK ke users.id (identitas universal multi-channel)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     agent_id = Column(String(50), ForeignKey("agent_configs.agent_id"), nullable=False)
-    
+
     # Kolom baru: model yang digunakan saat chat ini terjadi
     model_name = Column(String(100), nullable=True)
 
@@ -152,13 +171,182 @@ class ChatHistory(Base):
     agent = relationship("AgentConfig", back_populates="histories")
 
 
-def init_db():
+# =====================================================================
+# MIGRASI RINGAN: users multi-channel (Telegram + WhatsApp via WAHA)
+# create_all TIDAK mengubah tabel yang sudah ada, jadi kolom/constraint
+# baru disetel manual lewat ALTER yang idempoten (aman dijalankan ulang).
+# Data user lama TIDAK pernah dihapus — hanya ditambah/dilonggarkan.
+# =====================================================================
+def _migrate_users_multichannel(conn) -> None:
+    from sqlalchemy import text
+
+    # 1. Kolom baru (nullable dulu; NOT NULL dipasang setelah backfill)
+    conn.execute(text("""
+        ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS channel VARCHAR(20),
+            ADD COLUMN IF NOT EXISTS platform_id VARCHAR(50),
+            ADD COLUMN IF NOT EXISTS whatsapp_lid VARCHAR(50);
+    """))
+
+    # 2. Backfill data lama: seluruh user existing berasal dari Telegram
+    conn.execute(text("UPDATE users SET channel = 'telegram' WHERE channel IS NULL"))
+    conn.execute(text(
+        "UPDATE users SET platform_id = telegram_id "
+        "WHERE platform_id IS NULL AND telegram_id IS NOT NULL"
+    ))
+    # Jaring pengaman: baris yatim tanpa telegram_id tetap wajib punya
+    # platform_id unik agar constraint NOT NULL + UNIQUE terpenuhi.
+    conn.execute(text(
+        "UPDATE users SET platform_id = 'legacy-' || id::text WHERE platform_id IS NULL"
+    ))
+
+    # 3. Constraint: channel & platform_id wajib ada; telegram_id boleh
+    #    NULL (user WhatsApp tidak punya Telegram ID)
+    conn.execute(text("ALTER TABLE users ALTER COLUMN channel SET NOT NULL"))
+    conn.execute(text("ALTER TABLE users ALTER COLUMN platform_id SET NOT NULL"))
+    conn.execute(text("ALTER TABLE users ALTER COLUMN telegram_id DROP NOT NULL"))
+
+    # 4. Unique index routing (idempoten — CREATE INDEX IF NOT EXISTS)
+    conn.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_platform_id ON users (platform_id)"
+    ))
+    conn.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_whatsapp_lid ON users (whatsapp_lid)"
+    ))
+
+
+def migrate_users_multichannel() -> None:
+    """Jalankan migrasi multi-channel users dengan koneksi & commit sendiri.
+
+    Bisa dipanggil langsung dari skrip:
+      python my_agent/migrate_users_multichannel.py
+    """
     with engine.connect() as conn:
-        from sqlalchemy import text
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+        _migrate_users_multichannel(conn)
         conn.commit()
-    Base.metadata.create_all(bind=engine)
-    print("✓ Tabel users, agent_configs, rag_documents, dan chat_histories berhasil dibuat!")
+    print("✓ Migrasi users multi-channel (channel, platform_id, whatsapp_lid) selesai.")
+
+
+# =====================================================================
+# MIGRASI RINGAN FASE 2: identitas universal di chat_histories & orders
+# Kedua tabel beralih dari telegram_id (bergantung channel) ke user_id
+# (FK users.id). Data lama DIMIGRASI lewat backfill, bukan dihapus; kolom
+# telegram_id lama baru dibuang SETELAH user_id terisi semua. Idempoten.
+# =====================================================================
+def _table_exists(conn, table: str) -> bool:
+    from sqlalchemy import text
+    return conn.execute(text(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = :t"
+    ), {"t": table}).scalar() is not None
+
+
+def _column_exists(conn, table: str, column: str) -> bool:
+    from sqlalchemy import text
+    return conn.execute(text(
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = :t AND column_name = :c"
+    ), {"t": table, "c": column}).scalar() is not None
+
+
+def _migrate_universal_identity_fk(conn) -> None:
+    from sqlalchemy import text
+
+    # 0. Bersihkan kolom typo peninggalan migrasi is_manual_mode lama
+    if _table_exists(conn, "users"):
+        conn.execute(text("ALTER TABLE users DROP COLUMN IF EXISTS is_manuak_mode"))
+
+    # Jaga-jaga DB baru: bila tabel sumber belum ada, create_all() yang
+    # menyusul akan membuat skema baru secara langsung — tidak ada yang
+    # perlu dimigrasi.
+    if not (_table_exists(conn, "chat_histories") and _table_exists(conn, "orders")):
+        return
+
+    # 1. chat_histories: tambah user_id lalu backfill via pemetaan
+    #    telegram_id lama -> users.id. Backfill hanya relevan bila kolom
+    #    lama masih ada (run kedua: sudah terhapus -> langsung lewat).
+    conn.execute(text(
+        "ALTER TABLE chat_histories ADD COLUMN IF NOT EXISTS user_id INTEGER"
+    ))
+    if _column_exists(conn, "chat_histories", "telegram_id"):
+        _backfill = text("""
+            UPDATE chat_histories ch
+            SET user_id = u.id
+            FROM users u
+            WHERE ch.user_id IS NULL AND ch.telegram_id = u.telegram_id
+        """)
+        conn.execute(_backfill)
+        # Jaring pengaman riwayat yatim (telegram_id tanpa baris user — tak
+        # seharusnya terjadi karena FK lama, tapi riwayat tidak boleh hilang):
+        # buat baris user-nya lalu backfill ulang.
+        conn.execute(text("""
+            INSERT INTO users (channel, platform_id, telegram_id, is_manual_mode, is_blocked)
+            SELECT DISTINCT 'telegram', ch.telegram_id, ch.telegram_id, FALSE, FALSE
+            FROM chat_histories ch
+            WHERE ch.user_id IS NULL
+              AND NOT EXISTS (SELECT 1 FROM users u WHERE u.telegram_id = ch.telegram_id)
+        """))
+        conn.execute(_backfill)
+    conn.execute(text(
+        "ALTER TABLE chat_histories ALTER COLUMN user_id SET NOT NULL"
+    ))
+    conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_chat_histories_user_id ON chat_histories (user_id)"
+    ))
+    conn.execute(text("""
+        DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_chat_histories_user_id') THEN
+                ALTER TABLE chat_histories ADD CONSTRAINT fk_chat_histories_user_id
+                    FOREIGN KEY (user_id) REFERENCES users(id);
+            END IF;
+        END $$;
+    """))
+    # 2. Kolom lama dibuang setelah data aman (FK & index lama ikut terhapus)
+    conn.execute(text("ALTER TABLE chat_histories DROP COLUMN IF EXISTS telegram_id"))
+
+    # 3. orders: sama seperti di atas, tetapi user_id TETAP nullable —
+    #    order lama/gateway boleh tanpa pemilik. Backfill juga dijaga
+    #    keberadaan kolom lama agar idempoten.
+    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_id INTEGER"))
+    if _column_exists(conn, "orders", "telegram_id"):
+        _backfill_order = text("""
+            UPDATE orders o
+            SET user_id = u.id
+            FROM users u
+            WHERE o.user_id IS NULL AND o.telegram_id = u.telegram_id
+        """)
+        conn.execute(_backfill_order)
+        conn.execute(text("""
+            INSERT INTO users (channel, platform_id, telegram_id, is_manual_mode, is_blocked)
+            SELECT DISTINCT 'telegram', o.telegram_id, o.telegram_id, FALSE, FALSE
+            FROM orders o
+            WHERE o.user_id IS NULL AND o.telegram_id IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM users u WHERE u.telegram_id = o.telegram_id)
+        """))
+        conn.execute(_backfill_order)
+    conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_orders_user_id ON orders (user_id)"
+    ))
+    conn.execute(text("""
+        DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_orders_user_id') THEN
+                ALTER TABLE orders ADD CONSTRAINT fk_orders_user_id
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+            END IF;
+        END $$;
+    """))
+    conn.execute(text("ALTER TABLE orders DROP COLUMN IF EXISTS telegram_id"))
+
+
+def migrate_universal_identity_fk() -> None:
+    """Jalankan migrasi FK identitas universal dengan koneksi sendiri.
+
+    Bisa dipanggil langsung dari skrip:
+      python my_agent/migrate_universal_identity_fk.py
+    """
+    with engine.connect() as conn:
+        _migrate_universal_identity_fk(conn)
+        conn.commit()
+    print("✓ Migrasi FK identitas universal (chat_histories & orders -> user_id) selesai.")
 
 
 # ==========================================
@@ -195,16 +383,18 @@ class Order(Base):
     # Kolom akumulasi total item keseluruhan
     total_items = Column(Integer, default=1, nullable=False)
 
-    # Pemilik pesanan: telegram_id user yang memesan (nullable agar data
-    # lama tetap valid). Dipakai webhook pembayaran untuk mengirim
-    # notifikasi Telegram ke pembeli.
-    telegram_id = Column(String(50), ForeignKey("users.telegram_id"), nullable=True, index=True)
+    # Pemilik pesanan: FK ke users.id (identitas universal multi-channel,
+    # Telegram maupun WhatsApp). Nullable agar order lama tanpa pemilik /
+    # order buatan gateway tetap valid. Dipakai webhook pembayaran untuk
+    # mengirim notifikasi ke pembeli sesuai channel-nya.
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
     payment = relationship("OrderPayment", back_populates="order", uselist=False, cascade="all, delete-orphan")
+    user = relationship("User")
 
 
 # ==========================================
@@ -291,6 +481,12 @@ def init_db():
             ALTER TABLE users
                 ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE;
         """))
+        # Migrasi multi-channel: users kini mendukung WhatsApp (WAHA) via
+        # kolom channel / platform_id / whatsapp_lid (telegram_id boleh NULL).
+        _migrate_users_multichannel(conn)
+        # Migrasi identitas universal: chat_histories & orders beralih dari
+        # telegram_id ke user_id (FK users.id); kolom typo lama dibuang.
+        _migrate_universal_identity_fk(conn)
         # Migrasi RAG: skema documents/rag_documents yang lama (rag_documents
         # bergaya title/content, documents bergaya db_setup title/embedding)
         # digantikan struktur baru — buang sisa tabel lama bila masih ada.
