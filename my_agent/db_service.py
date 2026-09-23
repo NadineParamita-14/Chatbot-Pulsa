@@ -1,6 +1,7 @@
 import json
 import uuid
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from models import (
     SessionLocal,
     AgentConfig,
@@ -107,7 +108,16 @@ def get_or_create_user(
             .filter_by(channel=channel, platform_id=platform_id)
             .first()
         )
-        if not user:
+        if user is None and channel == CHANNEL_WHATSAPP and whatsapp_lid:
+            # Identitas ganda WhatsApp: pesan dari kontak yang sama bisa datang
+            # sebagai '@c.us' (nomor telepon) atau '@lid'. Cari juga lewat lid
+            # agar tetap satu baris user; platform_id lama dipertahankan.
+            user = (
+                session.query(User)
+                .filter_by(whatsapp_lid=whatsapp_lid)
+                .first()
+            )
+        if user is None:
             user = User(
                 channel=channel,
                 platform_id=platform_id,
@@ -123,9 +133,52 @@ def get_or_create_user(
             print(f"✓ User baru disimpan: {full_name or '(tanpa nama)'} "
                   f"({channel}:{platform_id})")
         return user
+    except IntegrityError:
+        # INSERT kena unique constraint. Dua penyebab umum:
+        #   1. Baris lama pra-migrasi: telegram_id terisi tapi platform_id
+        #      masih NULL, sehingga pencarian (channel, platform_id) meleset.
+        #   2. Balapan dua request serentak membuat user yang sama.
+        # Solusi: adopsi baris existing lewat kunci alternatif, selaraskan
+        # identitas routingnya, lalu pakai — data lama tidak pernah dibuang.
+        session.rollback()
+        try:
+            user = None
+            if channel == CHANNEL_TELEGRAM:
+                user = (
+                    session.query(User)
+                    .filter(User.telegram_id == str(platform_id))
+                    .first()
+                )
+            elif whatsapp_lid:
+                user = (
+                    session.query(User)
+                    .filter(User.whatsapp_lid == str(whatsapp_lid))
+                    .first()
+                )
+            if user is None:
+                print(f"✗ Gagal menyimpan user ({channel}:{platform_id}): "
+                      f"bentrok unique constraint tanpa baris yg bisa diadopsi.")
+                return None
+            user.channel = channel
+            if user.platform_id is None or channel == CHANNEL_TELEGRAM:
+                user.platform_id = platform_id
+            if channel == CHANNEL_TELEGRAM and user.telegram_id is None:
+                user.telegram_id = telegram_id
+            if whatsapp_lid is not None:
+                user.whatsapp_lid = whatsapp_lid
+            session.commit()
+            session.refresh(user)
+            print(f"✓ User existing diadopsi & diselaraskan: "
+                  f"{full_name or '(tanpa nama)'} ({channel}:{platform_id})")
+            return user
+        except Exception as e:
+            session.rollback()
+            print(f"✗ Gagal adopsi user existing ({channel}:{platform_id}): {e}")
+            return None
     except Exception as e:
         session.rollback()
         print(f"✗ Gagal menyimpan user: {e}")
+        return None
     finally:
         session.close()
 

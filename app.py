@@ -60,6 +60,7 @@ from models import (  # noqa: E402
     RagDocument,
     SessionLocal,
     User,
+    init_db,
     CHANNEL_TELEGRAM,
     CHANNEL_WHATSAPP,
 )
@@ -1731,6 +1732,16 @@ def register_all_webhooks_at_startup() -> None:
     print(f"[STARTUP] Auto-registrasi webhook: {registered}/{len(agents)} "
           f"agent terdaftar ke {PUBLIC_BASE_URL}.")
 
+
+# Dipanggil di level modul agar ikut jalan saat server start di mana pun —
+# python app.py maupun gunicorn (Docker). init_db() menjalankan migrasi
+# ringan yang IDEMPOTEN (kolom/constraint baru + backfill data lama), jadi
+# aman dipanggil di setiap boot dan deploy tidak pernah lagi kelewat
+# migrasi (penyebab IntegrityError "Gagal mencatat user" di produksi).
+try:
+    init_db()
+except Exception as _e:  # pragma: no cover
+    print(f"[STARTUP] PERINGATAN: init_db/migrasi skema gagal — {_e}")
 
 # Dipanggil di level modul agar ikut jalan saat server start di mana pun —
 # python app.py maupun gunicorn (Docker). Best-effort, sama pola dengan
