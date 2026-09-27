@@ -16,8 +16,10 @@
 =====================================================================
 """
 
+import base64
 import io
 import os
+import uuid
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -50,6 +52,7 @@ from models import (  # noqa: E402
     Admin,
     AdminRole,
     AgentConfig,
+    AgentWahaSession,
     ChatHistory,
     Document,
     ModelAgent,
@@ -951,7 +954,10 @@ def _send_manual_reply(db, user: User, agent_id: str, message: str):
     validasi gagal; mengembalikan respons Flask (ok/err).
     """
     if user.channel == CHANNEL_WHATSAPP:
-        if not _send_waha_text(_waha_chat_id(user), message):
+        # Kirim dari perangkat milik agent ini bila ada sesi terdaftar;
+        # agent tanpa perangkat WAHA memakai sesi default (WAHA_SESSION).
+        if not _send_waha_text(_waha_chat_id(user), message,
+                               session=_agent_waha_session(agent_id)):
             return err("Gagal mengirim pesan via WAHA — periksa konfigurasi WAHA.", 502)
     else:
         bot_token = get_agent_telegram_token(agent_id)
@@ -1043,10 +1049,16 @@ PUBLIC_BASE_URL = os.getenv(
 #                  atas nama sesi WAHA_SESSION.
 # ---------------------------------------------------------------------
 WAHA_BASE_URL = os.getenv("WAHA_BASE_URL", "http://localhost:3000").rstrip("/")
+# Sesi default (hanya fallback pengiriman: notifikasi pembayaran & balasan
+# legacy). Balasan AI webhook TIDAK memakai ini — ia memakai sesi asal
+# pesan masuk (lihat /webhook/whatsapp).
 WAHA_SESSION = os.getenv("WAHA_SESSION", "default")
 WAHA_API_KEY = os.getenv("WAHA_API_KEY") or None
 
-# Agent yang menangani percakapan WhatsApp (satu nomor WA = satu agent).
+# Bootstrap saja (BUKAN routing): dipakai ensure_default_waha_session_mapping()
+# untuk memetakan sesi default di atas ke agent ini saat aplikasi start, agar
+# setup lama yang sudah jalan tetap hidup tanpa konfigurasi ulang. Routing
+# pesan WhatsApp kini murni dari tabel agent_waha_sessions.
 WHATSAPP_AGENT_ID = os.getenv("WHATSAPP_AGENT_ID", "cs_agent")
 
 
@@ -1239,13 +1251,58 @@ def _waha_chat_id(user: User) -> str:
     return f"{user.platform_id}@c.us"
 
 
-def _send_waha_text(chat_id: str, text: str) -> bool:
-    """Kirim pesan teks WhatsApp via WAHA sendText. Best-effort."""
+def _resolve_waha_session_agent(session_name: str):
+    """Cari agent pemilik sesi WAHA dari tabel agent_waha_sessions.
+
+    Ini jantung dynamic router WhatsApp: satu nomor (sesi) WA = satu agent,
+    dan pemetaannya HIDUP DI DATABASE (dibuat lewat "Generate QR WA" di
+    Admin Panel), bukan lagi di env. Mengembalikan baris AgentConfig atau
+    None bila sesi tidak terdaftar.
+    """
+    session_name = (session_name or "").strip()
+    if not session_name:
+        return None
+    db = get_db()
+    return (
+        db.query(AgentConfig)
+        .join(AgentWahaSession, AgentWahaSession.agent_id == AgentConfig.id)
+        .filter(AgentWahaSession.session_name == session_name)
+        .first()
+    )
+
+
+def _agent_waha_session(agent_id: str):
+    """Nama sesi WAHA milik agent (sesi terbaru yang di-generate).
+
+    Dipakai jalur keluar yang tidak punya konteks pesan masuk — mis. balasan
+    manual admin — supaya pesan keluar dari perangkat milik agent tersebut.
+    Mengembalikan None bila agent belum punya sesi terdaftar (pemanggil
+    memakai sesi default WAHA_SESSION).
+    """
+    db = get_db()
+    row = (
+        db.query(AgentWahaSession)
+        .join(AgentConfig, AgentWahaSession.agent_id == AgentConfig.id)
+        .filter(AgentConfig.agent_id == agent_id)
+        .order_by(AgentWahaSession.created_at.desc())
+        .first()
+    )
+    return row.session_name if row else None
+
+
+def _send_waha_text(chat_id: str, text: str, session: str = None) -> bool:
+    """Kirim pesan teks WhatsApp via WAHA sendText. Best-effort.
+
+    `session` = nama sesi WAHA pengirim; dikosongkan untuk memakai sesi
+    default (WAHA_SESSION env). Webhook AI selalu meneruskan sesi asal
+    pesan masuk agar balasan keluar dari nomor yang sama dengannya.
+    """
+    session = (session or WAHA_SESSION).strip()
     try:
         resp = requests.post(
             f"{WAHA_BASE_URL}/api/sendText",
             headers=_waha_headers(),
-            json={"session": WAHA_SESSION, "chatId": chat_id, "text": text},
+            json={"session": session, "chatId": chat_id, "text": text},
             timeout=15,
         )
         if resp.status_code >= 400:
@@ -1257,11 +1314,12 @@ def _send_waha_text(chat_id: str, text: str) -> bool:
         return False
 
 
-def _send_waha_file(chat_id: str, file_path) -> bool:
+def _send_waha_file(chat_id: str, file_path, session: str = None) -> bool:
     """Kirim file (mis. gambar promo) via WAHA sendFile (multipart)."""
     if not file_path.exists():
         print(f"[WAHA] File tidak ditemukan: {file_path}")
         return False
+    session = (session or WAHA_SESSION).strip()
     headers = {}
     if WAHA_API_KEY:
         headers["X-Api-Key"] = WAHA_API_KEY
@@ -1270,7 +1328,7 @@ def _send_waha_file(chat_id: str, file_path) -> bool:
             resp = requests.post(
                 f"{WAHA_BASE_URL}/api/sendFile",
                 headers=headers,
-                data={"session": WAHA_SESSION, "chatId": chat_id},
+                data={"session": session, "chatId": chat_id},
                 files={"file": f},
                 timeout=30,
             )
@@ -1281,6 +1339,41 @@ def _send_waha_file(chat_id: str, file_path) -> bool:
     except (requests.RequestException, OSError) as e:
         print(f"[WAHA] Gagal mengirim file WhatsApp: {e}")
         return False
+
+
+def _configure_waha_session_webhook(session_name: str) -> bool:
+    """Arahkan webhook SESI WAHA ke endpoint WhatsApp Flask.
+
+    Webhook WAHA disetel per-sesi (bukan lewat env global), sehingga
+    setiap sesi perangkat baru hasil "Generate QR WA" wajib didaftarkan
+    agar event pesannya mengalir ke /webhook/whatsapp. Best-effort:
+    kegagalan hanya dicatat ke log dan TIDAK menggagalkan pembuatan
+    sesi di endpoint pemanggil.
+    """
+    try:
+        resp = requests.put(
+            f"{WAHA_BASE_URL}/api/sessions/{session_name}",
+            headers=_waha_headers(),
+            json={
+                "config": {
+                    "webhooks": [
+                        {
+                            "url": f"{PUBLIC_BASE_URL}/webhook/whatsapp",
+                            "events": ["message"],
+                        }
+                    ]
+                }
+            },
+            timeout=15,
+        )
+        if resp.status_code < 400:
+            print(f"[WAHA] Webhook sesi '{session_name}' terdaftar -> /webhook/whatsapp")
+            return True
+        print(f"[WAHA] Gagal set webhook sesi '{session_name}' "
+              f"(HTTP {resp.status_code}): {resp.text[:200]}")
+    except requests.RequestException as e:
+        print(f"[WAHA] Gagal menghubungi WAHA utk webhook sesi '{session_name}': {e}")
+    return False
 
 
 def _extract_image_tags(text: str):
@@ -1346,7 +1439,8 @@ def _get_redis():
 
 
 def _handle_toxic_strikes(agent_id: str, user: User, user_text: str,
-                          model_name: str, reply_target: str = None) -> None:
+                          model_name: str, reply_target: str = None,
+                          waha_session: str = None) -> None:
     """Catat pelanggaran bahasa toxic lalu kirim peringatan bertahap.
 
     Strike 1: peringatan sopan. Strike 2: peringatan tegas.
@@ -1381,7 +1475,8 @@ def _handle_toxic_strikes(agent_id: str, user: User, user_text: str,
 
     # 2. Kirim pesan peringatan/blokir sesuai channel user (best-effort)
     if user.channel == CHANNEL_WHATSAPP:
-        _send_waha_text(reply_target or _waha_chat_id(user), text)
+        _send_waha_text(reply_target or _waha_chat_id(user), text,
+                        session=waha_session)
     else:
         bot_token = get_agent_telegram_token(agent_id)
         if bot_token:
@@ -1399,7 +1494,8 @@ def _handle_toxic_strikes(agent_id: str, user: User, user_text: str,
 
 def _process_agent_message(agent_id: str, user: User, user_text: str,
                            image_bytes: bytes | None = None,
-                           reply_target: str = None) -> None:
+                           reply_target: str = None,
+                           waha_session: str = None) -> None:
     """Otak AI webhook — port alur reply() bot.py: susun prompt & riwayat
     dari database, panggil Gemini (multimodal: teks + gambar bila ada),
     simpan riwayat, kirim balasan (teks bersih + gambar) ke user sesuai
@@ -1408,6 +1504,8 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
     reply_target: alamat balasan mentah dari platform (wajib utk WhatsApp:
     string 'from' utuh seperti '62812...@c.us'); Telegram memakai
     user.platform_id bila tidak diberikan.
+    waha_session: sesi WAHA asal pesan masuk — balasan dikirim atas nama
+    sesi yang sama sehingga nomor pengirimnya konsisten.
     """
     from google.genai import types
 
@@ -1479,7 +1577,8 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
     # lalu hentikan alur normal (tidak ada balasan AI & tidak kirim gambar).
     if TOXIC_INTENT_RE.search(bot_reply or ""):
         _handle_toxic_strikes(agent_id, user, user_text, model_name,
-                              reply_target=reply_target)
+                              reply_target=reply_target,
+                              waha_session=waha_session)
         return
 
     # "Postman": parse tag [GAMBAR: x] — teks dikirim bersih tanpa tag,
@@ -1497,9 +1596,9 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
     if user.channel == CHANNEL_WHATSAPP:
         target = reply_target or _waha_chat_id(user)
         if clean_reply:
-            _send_waha_text(target, clean_reply)
+            _send_waha_text(target, clean_reply, session=waha_session)
         for filename in image_files:
-            _send_waha_file(target, BOT_IMAGES_DIR / filename)
+            _send_waha_file(target, BOT_IMAGES_DIR / filename, session=waha_session)
     else:
         if clean_reply:
             _send_telegram_text(bot_token, user.platform_id, clean_reply)
@@ -1587,17 +1686,20 @@ def telegram_webhook(agent_id: str):
 # =====================================================================
 @app.route("/webhook/whatsapp", methods=["POST"])
 def whatsapp_webhook():
-    """Penerima update WAHA.
+    """Penerima update WAHA + DYNAMIC ROUTER sesi -> agent.
 
     Bentuk payload khas WAHA:
-        {"event": "message", "session": "default",
+        {"event": "message", "session": "cs_agent_dev_1a2b3c4d",
          "payload": [{"id": "...", "from": "62812...@c.us", "fromMe": false,
                       "hasMedia": false, "body": "halo",
                       "sender": {"id": "...", "pushname": "Nama"}}]}
 
-    Identitas user dipecah lewat parse_waha_sender() (suffix '@c.us'/'@lid'
-    dibuang -> platform_id / whatsapp_lid), lalu diteruskan ke alur AI
-    milik WHATSAPP_AGENT_ID. Balasan dikirim via WAHA sendText/sendFile.
+    Routing: nama `session` dipetakan ke agent pemiliknya lewat tabel
+    agent_waha_sessions (dibuat lewat "Generate QR WA") — BUKAN lagi env.
+    Sesi yang tidak terdaftar di-log lalu pesannya dibuang dengan tetap
+    membalas 200 agar WAHA tidak mengulang update yang sama. Balasan AI
+    dikirim atas nama sesi asal pesan (nomor pengirim konsisten), dan
+    chat_histories tercatat atas agent hasil routing.
     """
     payload = request.get_json(silent=True) or {}
 
@@ -1605,6 +1707,15 @@ def whatsapp_webhook():
     event = payload.get("event") or "message"
     if event != "message":
         return jsonify({"status": "ok"}), 200
+
+    # --- DYNAMIC ROUTING: sesi asal pesan -> agent pemiliknya ---
+    session_name = (payload.get("session") or "").strip()
+    agent_cfg = _resolve_waha_session_agent(session_name)
+    if agent_cfg is None:
+        print(f"[WEBHOOK:whatsapp] Sesi '{session_name or '(tanpa nama)'}' tidak "
+              f"terdaftar di agent_waha_sessions — pesan dibuang.")
+        return jsonify({"status": "ok"}), 200
+    agent_id = agent_cfg.agent_id
 
     messages = payload.get("payload") or []
     if isinstance(messages, dict):  # beberapa setup WAHA mengirim objek tunggal
@@ -1631,8 +1742,8 @@ def whatsapp_webhook():
         )
         user_text = (msg.get("body") or "").strip()
 
-        print(f"[WEBHOOK:whatsapp] dari={full_name or '?'} ({raw_from or '?'}): "
-              f"{user_text[:80] or '(tanpa teks)'}")
+        print(f"[WEBHOOK:whatsapp/{agent_id}] dari={full_name or '?'} "
+              f"({raw_from or '?'}): {user_text[:80] or '(tanpa teks)'}")
 
         if not platform_id or (not user_text and not msg.get("hasMedia")):
             continue
@@ -1640,29 +1751,30 @@ def whatsapp_webhook():
         # Pra-cek 0 (3-Strike Rule): user diblokir diabaikan total —
         # gatekeeper yang sama persis dengan webhook Telegram.
         if is_user_blocked(platform_id, CHANNEL_WHATSAPP):
-            print(f"[WEBHOOK:whatsapp] {platform_id} diblokir -> update diabaikan (gatekeeper).")
+            print(f"[WEBHOOK:whatsapp/{agent_id}] {platform_id} diblokir -> update diabaikan (gatekeeper).")
             continue
 
         # Media (gambar/dokumen) via WAHA belum masuk alur AI saat ini
         if msg.get("hasMedia"):
-            print(f"[WEBHOOK:whatsapp] Pesan media dari {raw_from} diabaikan (belum didukung).")
+            print(f"[WEBHOOK:whatsapp/{agent_id}] Pesan media dari {raw_from} diabaikan (belum didukung).")
             continue
         if not user_text:
             continue
 
-        # Pra-cek 1: agent WhatsApp dimatikan superadmin -> pesan offline
-        if not is_agent_active(WHATSAPP_AGENT_ID):
-            print(f"[WEBHOOK:whatsapp] agent '{WHATSAPP_AGENT_ID}' non-aktif -> pesan offline.")
-            _send_waha_text(raw_from, WEBHOOK_OFFLINE_MESSAGE)
+        # Pra-cek 1: agent hasil routing dimatikan superadmin -> pesan offline
+        if not is_agent_active(agent_id):
+            print(f"[WEBHOOK:whatsapp/{agent_id}] agent non-aktif -> pesan offline.")
+            _send_waha_text(raw_from, WEBHOOK_OFFLINE_MESSAGE, session=session_name)
             continue
 
         # Pra-cek 2: Human Takeover -> AI diam, admin membalas manual
         if is_user_in_manual_mode(platform_id, CHANNEL_WHATSAPP):
-            print(f"[WEBHOOK:whatsapp] {platform_id} dalam manual mode -> AI diabaikan.")
+            print(f"[WEBHOOK:whatsapp/{agent_id}] {platform_id} dalam manual mode -> AI diabaikan.")
             continue
 
-        # Catat/ambil user lalu proses otak AI; balasan dikirim ke alamat
-        # mentah 'from' agar WAHA membalas ke chat yang benar (@c.us/@lid).
+        # Catat/ambil user lalu proses otak AI milik agent hasil routing;
+        # balasan dikirim ke alamat mentah 'from' agar WAHA membalas ke chat
+        # yang benar (@c.us/@lid), atas nama sesi yang menerima pesan.
         user = get_or_create_user(
             full_name=full_name,
             channel=ident["channel"],
@@ -1670,9 +1782,10 @@ def whatsapp_webhook():
             whatsapp_lid=ident["whatsapp_lid"],
         )
         if user is None:
-            print(f"[WEBHOOK:whatsapp] Gagal mencatat user {platform_id} — update dilewati.")
+            print(f"[WEBHOOK:whatsapp/{agent_id}] Gagal mencatat user {platform_id} — update dilewati.")
             continue
-        _process_agent_message(WHATSAPP_AGENT_ID, user, user_text, reply_target=raw_from)
+        _process_agent_message(agent_id, user, user_text,
+                               reply_target=raw_from, waha_session=session_name)
 
     return jsonify({"status": "ok"}), 200
 
@@ -1750,6 +1863,48 @@ try:
     register_all_webhooks_at_startup()
 except Exception as _e:  # pragma: no cover
     print(f"[STARTUP] Peringatan: auto-registrasi webhook gagal: {_e}")
+
+
+def ensure_default_waha_session_mapping() -> None:
+    """Pastikan sesi WAHA default tercatat di agent_waha_sessions.
+
+    Dynamic router /webhook/whatsapp murni membaca database, sedangkan
+    setup lama (sesi `session_chatbot` dsb.) dibuat manual di WAHA tanpa
+    baris pemetaan — tanpa seed ini bot produksi yang sudah jalan akan
+    dianggap "sesi tidak dikenal" dan diam. Pemetaan dibuat ke agent
+    WHATSAPP_AGENT_ID (env, peran bootstrap) hanya BILA sesi tersebut
+    belum terdaftar; sesi hasil "Generate QR WA" tidak pernah tersentuh.
+    Idempoten & best-effort: kegagalan DB tidak menggagalkan start.
+    """
+    session_name = (WAHA_SESSION or "").strip()
+    if not session_name:
+        return
+    db = SessionLocal()
+    try:
+        already = db.query(AgentWahaSession).filter_by(session_name=session_name).first()
+        if already is not None:
+            return
+        cfg = db.query(AgentConfig).filter_by(agent_id=WHATSAPP_AGENT_ID).first()
+        if cfg is None:
+            print(f"[STARTUP] Sesi WAHA '{session_name}' belum dipetakan: "
+                  f"agent '{WHATSAPP_AGENT_ID}' tidak ditemukan di agent_configs.")
+            return
+        db.add(AgentWahaSession(agent_id=cfg.id, session_name=session_name))
+        db.commit()
+        print(f"[STARTUP] Sesi WAHA '{session_name}' dipetakan ke agent "
+              f"'{WHATSAPP_AGENT_ID}' (bootstrap default routing).")
+    except Exception as e:
+        db.rollback()
+        print(f"[STARTUP] Peringatan: gagal memetakan sesi WAHA default: {e}")
+    finally:
+        db.close()
+
+
+# Jalankan setelah init_db() di atas (tabel agent_waha_sessions pasti ada).
+try:
+    ensure_default_waha_session_mapping()
+except Exception as _e:  # pragma: no cover
+    print(f"[STARTUP] Peringatan: seed pemetaan sesi WAHA gagal: {_e}")
 
 
 # =====================================================================
@@ -2116,6 +2271,234 @@ def list_waha_sessions():
             "push_name": me.get("pushName"),
         })
     return ok(data=sessions)
+
+
+# =====================================================================
+# ENDPOINT: WAHA MULTI-DEVICE PER AGENT
+# Satu agent boleh terhubung ke beberapa nomor WhatsApp sekaligus.
+# Sesi yang dibuat dari Admin Panel dicatat di agent_waha_sessions;
+# status live (WORKING/SCAN_QR/...) selalu diambil langsung dari WAHA.
+# Semua endpoint superadmin-only karena mengubah "jalur" agent.
+# =====================================================================
+
+# Nama sesi WAHA dibatasi karakter aman (dipakai di path URL API WAHA).
+WAHA_SESSION_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _waha_live_sessions() -> tuple:
+    """Ambil peta status live sesi dari WAHA -> ({nama: sesi}, pesan_error).
+
+    Peta kosong + pesan diembalikan (bukan exception) bila WAHA mati,
+    agar pemanggil tetap bisa menampilkan data database yang tersimpan.
+    """
+    try:
+        resp = requests.get(
+            f"{WAHA_BASE_URL}/api/sessions",
+            headers=_waha_headers(),
+            timeout=10,
+        )
+        if resp.status_code >= 400:
+            return {}, f"WAHA menolak permintaan (HTTP {resp.status_code})."
+        raw = resp.json()
+        if not isinstance(raw, list):
+            return {}, "Respon WAHA tidak dikenal."
+        return {s.get("name"): s for s in raw if isinstance(s, dict)}, None
+    except (requests.RequestException, ValueError) as e:
+        print(f"[WAHA] Gagal mengambil status sesi: {e}")
+        return {}, "WAHA server unreachable"
+
+
+@app.route("/api/agent/<agent_id>/waha/sessions", methods=["GET"])
+@superadmin_required
+@api_endpoint
+def list_agent_waha_sessions(agent_id: str):
+    """Daftar perangkat WhatsApp milik satu agent (DB + status live WAHA).
+
+    Gabungan: baris tercatat di agent_waha_sessions dilengkapi status
+    real-time dari WAHA (status/phone/push_name). Sesi yang belum ada
+    di WAHA (belum pernah start / sudah dihapus manual) tetap tampil
+    dengan status null agar admin tahu harus membersihkannya.
+    """
+    db = get_db()
+    cfg = db.query(AgentConfig).filter_by(agent_id=agent_id).first()
+    if cfg is None:
+        return err("Agent tidak ditemukan.", 404)
+
+    rows = (
+        db.query(AgentWahaSession)
+        .filter_by(agent_id=cfg.id)
+        .order_by(AgentWahaSession.created_at.desc())
+        .all()
+    )
+
+    live, warning = _waha_live_sessions()
+
+    data = []
+    for r in rows:
+        s = live.get(r.session_name) or {}
+        me = s.get("me") or {}
+        raw_id = me.get("id") or ""
+        data.append({
+            "session_name": r.session_name,
+            "created_at": _iso(r.created_at),
+            "status": s.get("status"),  # null = tidak ditemukan di WAHA
+            "phone": raw_id.split("@")[0] if raw_id else None,
+            "push_name": me.get("pushName"),
+        })
+    return ok(data=data, message=warning or "OK")
+
+
+@app.route("/api/agent/<agent_id>/waha/start", methods=["POST"])
+@superadmin_required
+@api_endpoint
+def start_agent_waha_session(agent_id: str):
+    """Mulai sesi WAHA baru untuk agent (langkah pertama "Generate QR WA").
+
+    1. Bentuk nama sesi unik {agent_id}_dev_{uuid8} (karakter divalidasi).
+    2. POST /api/sessions/start ke WAHA -> sesi menunggu scan QR.
+    3. Catat ke agent_waha_sessions agar statusnya bisa dipantau/dihapus.
+    4. Daftarkan webhook level-sesi (best-effort) ke /webhook/whatsapp.
+    """
+    db = get_db()
+    cfg = db.query(AgentConfig).filter_by(agent_id=agent_id).first()
+    if cfg is None:
+        return err("Agent tidak ditemukan.", 404)
+
+    safe_agent = re.sub(r"[^A-Za-z0-9_-]", "", agent_id) or "agent"
+    session_name = f"{safe_agent}_dev_{uuid.uuid4().hex[:8]}"
+
+    try:
+        resp = requests.post(
+            f"{WAHA_BASE_URL}/api/sessions/start",
+            headers=_waha_headers(),
+            json={"name": session_name},
+            timeout=30,
+        )
+    except requests.RequestException as e:
+        print(f"[WAHA] Gagal start sesi '{session_name}': {e}")
+        return err("WAHA server unreachable — sesi tidak dibuat.", 502)
+    if resp.status_code >= 400:
+        print(f"[WAHA] Start sesi '{session_name}' ditolak "
+              f"({resp.status_code}): {resp.text[:200]}")
+        return err(f"WAHA menolak start sesi (HTTP {resp.status_code}).", 502)
+
+    row = AgentWahaSession(agent_id=cfg.id, session_name=session_name)
+    db.add(row)
+    db.commit()
+
+    # Setelah tersimpan, daftarkan webhook sesi (best-effort) supaya
+    # pesan dari perangkat baru langsung sampai ke bot.
+    _configure_waha_session_webhook(session_name)
+
+    return ok(
+        data={
+            "session_name": session_name,
+            "created_at": _iso(row.created_at),
+            "status": None,
+            "phone": None,
+            "push_name": None,
+        },
+        message="Sesi WhatsApp dibuat — scan QR untuk menautkan perangkat.",
+        code=201,
+    )
+
+
+@app.route("/api/waha/session/<session_name>/qr", methods=["GET"])
+@superadmin_required
+@api_endpoint
+def get_waha_session_qr(session_name: str):
+    """Proxy QR code sesi WAHA sebagai data-URL (JSON) untuk modal UI.
+
+    WAHA diminta `format=image` (PNG biner) lalu dikonversi menjadi
+    `data:image/png;base64,...` supaya frontend cukup memakai fetch
+    ber-header JWT yang sudah ada (img src murni tidak bisa membawa
+    Authorization header). Sesi harus tercatat di database.
+    """
+    if not WAHA_SESSION_NAME_RE.match(session_name):
+        return err("Nama sesi tidak valid.", 400)
+
+    db = get_db()
+    row = db.query(AgentWahaSession).filter_by(session_name=session_name).first()
+    if row is None:
+        return err("Sesi tidak ditemukan.", 404)
+
+    try:
+        # Route QR gaya API WAHA lama: /api/{session}/auth/qr — versi yang
+        # terpasang TIDAK menyediakan /api/sessions/{name}/auth/qr.
+        resp = requests.get(
+            f"{WAHA_BASE_URL}/api/{session_name}/auth/qr",
+            headers=_waha_headers(),
+            params={"format": "image"},
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        print(f"[WAHA] Gagal mengambil QR '{session_name}': {e}")
+        return err("WAHA server unreachable.", 502)
+
+    ctype = (resp.headers.get("Content-Type") or "").lower()
+    if resp.status_code < 400 and ctype.startswith("image/"):
+        b64 = base64.b64encode(resp.content).decode("ascii")
+        return ok(data={"qr": f"data:{ctype};base64,{b64}"})
+
+    # Fallback WAHA versi lama: QR berupa JSON {"url": "data:image/png;base64,.."}
+    # (atau "qr") alih-alih PNG biner — teruskan data-URL apa adanya.
+    body = {}
+    try:
+        body = resp.json() or {}
+    except ValueError:
+        pass
+    dataurl = body.get("url") or body.get("qr") or body.get("data")
+    if resp.status_code < 400 and isinstance(dataurl, str) and dataurl.startswith("data:image"):
+        return ok(data={"qr": dataurl})
+
+    # Belum ada QR (sesi masih loading) atau QR kedaluwarsa — kirim
+    # pesan detail dari WAHA bila ada agar polling UI menampilkannya.
+    return err(body.get("message") or f"QR belum tersedia (HTTP {resp.status_code}).", 404)
+
+
+@app.route("/api/agent/<agent_id>/waha/session/<session_name>", methods=["DELETE"])
+@superadmin_required
+@api_endpoint
+def delete_agent_waha_session(agent_id: str, session_name: str):
+    """Logout & hapus perangkat WAHA milik agent (WAHA + catatan DB).
+
+    DELETE /api/sessions/{name} di WAHA sekaligus logout nomor WA-nya.
+    Sesi yang sudah tidak ada di WAHA (HTTP 404) tetap dibersihkan dari
+    database; WAHA yang sama sekali tak terjangkau menggagalkan aksi
+    agar catatan tidak hilang sebelum perangkat benar-benar dilogout.
+    """
+    if not WAHA_SESSION_NAME_RE.match(session_name):
+        return err("Nama sesi tidak valid.", 400)
+
+    db = get_db()
+    cfg = db.query(AgentConfig).filter_by(agent_id=agent_id).first()
+    row = None
+    if cfg is not None:
+        row = (
+            db.query(AgentWahaSession)
+            .filter_by(agent_id=cfg.id, session_name=session_name)
+            .first()
+        )
+    if row is None:
+        return err("Sesi tidak ditemukan untuk agent ini.", 404)
+
+    try:
+        resp = requests.delete(
+            f"{WAHA_BASE_URL}/api/sessions/{session_name}",
+            headers=_waha_headers(),
+            timeout=30,
+        )
+    except requests.RequestException as e:
+        print(f"[WAHA] Gagal menghapus sesi '{session_name}': {e}")
+        return err("WAHA server unreachable — sesi tidak dihapus.", 502)
+    if resp.status_code >= 400 and resp.status_code != 404:
+        print(f"[WAHA] Hapus sesi '{session_name}' ditolak "
+              f"({resp.status_code}): {resp.text[:200]}")
+        return err(f"WAHA menolak penghapusan sesi (HTTP {resp.status_code}).", 502)
+
+    db.delete(row)
+    db.commit()
+    return ok(message=f"Perangkat '{session_name}' telah dilogout dan dihapus.")
 
 
 # =====================================================================

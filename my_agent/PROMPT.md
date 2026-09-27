@@ -939,3 +939,63 @@ We are expanding the Flask admin dashboard (`index.html`, `app.js`, `app.py`) to
    - Write a function `fetchWahaSessions()` that makes a `fetch()` call to `/api/waha/sessions`.
    - Parse the JSON and dynamically render the HTML for the cards/table inside the view container.
    - (Optional but recommended) Add a "Refresh" button on the UI to call this function manually, or set it to poll every 15-30 seconds when the view is active.
+
+# Context
+We are implementing the "Multi-Device / Multi-Session" feature for the WhatsApp integration. The goal is to allow a single AI Agent (e.g., `cs_agent` or `pulsa_agent`) to be connected to multiple WhatsApp numbers simultaneously via WAHA. 
+
+Currently, the user is looking at the Agent Config detail view (`#view-agent-form`). We need to add a feature to generate and manage WAHA sessions linked specifically to the currently viewed agent.
+
+# Tasks
+
+1. **Database Update: Create `agent_waha_sessions` Table**
+   - Create a new PostgreSQL table (or SQLAlchemy model) named `agent_waha_sessions`.
+   - Columns: 
+     - `id` (Primary Key, Integer, Auto-increment)
+     - `agent_id` (String, Foreign Key linking to `agent_configs.id` with CASCADE delete)
+     - `session_name` (String, Unique) - The generated session name used in WAHA.
+     - `created_at` (DateTime, default current time)
+   - Provide a safe migration script/function to create this table without dropping existing ones.
+
+2. **Backend API Routes (`app.py`)**
+   - `GET /api/agent/<agent_id>/waha/sessions`: Fetch all WAHA sessions linked to this agent from the DB, then query the WAHA API to get their live status/phone numbers, and return the combined data.
+   - `POST /api/agent/<agent_id>/waha/start`: 
+     - Generate a unique session name (e.g., `{agent_id}_dev_{random_uuid}`).
+     - Send a request to WAHA (`POST {WAHA_BASE_URL}/api/sessions/start`) to initialize the session.
+     - Save the `agent_id` and `session_name` to the `agent_waha_sessions` table.
+   - `GET /api/waha/session/<session_name>/qr`: Fetch the base64 QR code image from WAHA (`GET {WAHA_BASE_URL}/api/sessions/{session_name}/auth/qr`).
+   - `DELETE /api/agent/<agent_id>/waha/session/<session_name>`: Stop/logout the session in WAHA and delete the record from the DB.
+
+3. **Frontend UI Update (`index.html`)**
+   - Inside `#view-agent-form`, locate the top header area where the Agent Name and the grey provider text (e.g., "google") are displayed. 
+   - Add a `<button id="btn-generate-qr" class="...">➕ Generate QR WA</button>` aligned to the top right, right next to or slightly below the provider badge.
+   - Add a small container below the main form fields (or in a sidebar card) to list the currently connected devices for this specific agent.
+   - Create a hidden Modal/Dialog to display the QR code image when generating a new device.
+
+4. **Frontend JS Logic (`app.js`)**
+   - When an agent is selected and `#view-agent-form` is populated, call the GET API to load and display its specific connected devices in the list.
+   - Bind the "Generate QR WA" button: When clicked, call the POST start API, open the QR Modal, and start polling the QR GET API every 2-3 seconds to display the base64 image.
+   - Add logic to stop polling, close the modal, and refresh the device list when the WAHA session status changes to `WORKING`.
+
+# Context
+The Multi-Device/Multi-Session feature for WAHA is now active. We have the `agent_waha_sessions` table mapping dynamic session names (e.g., `cs_agent_dev_xyz`) to specific `agent_id`s in `agent_configs`. 
+
+However, the current `/webhook/whatsapp` handler is suffering from technical debt: it statically routes all incoming messages to a single agent defined by `WHATSAPP_AGENT_ID` in the `.env` file, and responds using a static `WAHA_SESSION` env variable. 
+
+We need to implement a Dynamic Router inside the webhook to map incoming messages to their correct AI agents based on the database.
+
+# Tasks
+
+1. **Dynamic Inbound Routing (`/webhook/whatsapp` in `app.py`)**
+   - Extract the `session` name from the incoming WAHA JSON payload.
+   - Query the `AgentWahaSession` table to find which `agent_id` owns this `session`.
+   - If a match is found, load the `AgentConfig` for that specific `agent_id` and process the message using that agent's rules (Prompt, Temperature, Knowledge Base).
+   - If no match is found (unrecognized session), log a warning and drop the message gracefully (return 200 OK to prevent WAHA retries).
+   - Remove any hardcoded reliance on `os.getenv('WHATSAPP_AGENT_ID')` for routing logic.
+
+2. **Dynamic Outbound Messaging (`app.py` / WAHA message sender utility)**
+   - Ensure that the function responsible for sending replies back to WAHA (e.g., `send_waha_message`) no longer uses `os.getenv('WAHA_SESSION')`.
+   - Update the function signature to accept the `session` name dynamically as an argument.
+   - Pass the incoming `session` name from the webhook payload directly into this sender function so that the reply is sent from the exact same WhatsApp number that received the message.
+
+3. **Database Chat History Consistency**
+   - Ensure that when saving the conversation to the `chat_histories` table, the correct `agent_id` (dynamically found in Step 1) is recorded alongside the user's universal identity (`platform_id`).

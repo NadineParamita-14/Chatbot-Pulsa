@@ -462,6 +462,10 @@
               ⬅ Kembali
             </button>
             <div id="agent-configs-container" class="w-full"></div>
+
+            <!-- Daftar perangkat WhatsApp (WAHA) milik agent ini —
+                 kartu & barisnya dirender app.js (renderAgentWahaDevices) -->
+            <div id="agent-waha-devices" class="hidden mt-6"></div>
           </div>
         </section>
 
@@ -697,6 +701,37 @@
           class="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 hover:bg-slate-50">Batal</button>
         <button id="confirm-ok" type="button"
           class="px-4 py-2 text-sm font-semibold rounded-lg bg-red-600 hover:bg-red-700 text-white">Ya, Lanjutkan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================================
+       MODAL: QR WHATSAPP (Generate QR WA — multi-device WAHA)
+       QR & status diisi app.js (polling tiap 3 detik sampai sesi
+       berstatus WORKING / modal ditutup).
+  =========================================================== -->
+  <div id="modal-waha-qr" class="hidden fixed inset-0 z-40 flex items-center justify-center px-4">
+    <div class="modal-overlay absolute inset-0 bg-slate-900/50" data-close-modal></div>
+    <div class="modal-card relative bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
+      <h3 class="text-lg font-bold text-slate-900">Scan QR WhatsApp</h3>
+      <p class="text-xs text-slate-500 mt-1 mb-4">
+        Buka WhatsApp &rarr; <span class="font-medium">Perangkat Tertaut</span> &rarr; Tautkan Perangkat
+      </p>
+
+      <!-- Kotak QR: spinner saat menunggu, gambar QR saat tersedia -->
+      <div class="mx-auto w-56 h-56 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center overflow-hidden">
+        <svg id="waha-qr-spinner" class="animate-spin w-8 h-8 text-teal-500" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <img id="waha-qr-img" class="hidden w-full h-full object-contain" alt="QR WhatsApp" />
+      </div>
+
+      <p id="waha-qr-status" class="text-sm text-slate-500 mt-4 min-h-[1.25rem]">Menyiapkan sesi…</p>
+
+      <div class="flex justify-center gap-3 mt-5">
+        <button type="button" data-close-modal
+          class="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 hover:bg-slate-50">Tutup</button>
       </div>
     </div>
   </div>

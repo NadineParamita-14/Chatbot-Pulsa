@@ -104,6 +104,14 @@ class AgentConfig(Base):
     model_ref = relationship("ModelAgent", back_populates="configs")
     histories = relationship("ChatHistory", back_populates="agent")
 
+    # Perangkat WhatsApp (WAHA) milik agent ini — satu agent boleh
+    # terhubung ke beberapa nomor WA sekaligus (multi-device).
+    waha_sessions = relationship(
+        "AgentWahaSession",
+        back_populates="config",
+        cascade="all, delete-orphan",
+    )
+
 
 # ==========================================
 # 4. Tabel RAG (Knowledge Base / Embeddings)
@@ -436,7 +444,37 @@ class OrderPayment(Base):
     order = relationship("Order", back_populates="payment")
 
 # ==========================================
-# KONSTANTA RBAC (Python Enum / Const) 
+# 9b. TABEL: Agent WAHA Sessions (Multi-Device)
+# Satu agent boleh terhubung ke BEBERAPA nomor WhatsApp sekaligus via
+# WAHA: setiap baris = satu perangkat/nomor yang di-generate dari
+# Admin Panel ("Generate QR WA"). Menghapus agent otomatis melepas
+# semua sesinya (ORM cascade + ondelete=CASCADE di level database).
+# ==========================================
+class AgentWahaSession(Base):
+    __tablename__ = "agent_waha_sessions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Pemilik sesi: FK ke agent_configs.id (bukan agent_id string) agar
+    # CASCADE bekerja di level database saat baris agent dihapus.
+    agent_id = Column(
+        Integer,
+        ForeignKey("agent_configs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Nama sesi di WAHA (cth: 'cs_agent_dev_1a2b3c4d') — unik karena
+    # nama sesi adalah kunci utama resource di seluruh API WAHA.
+    session_name = Column(String(100), unique=True, nullable=False, index=True)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    config = relationship("AgentConfig", back_populates="waha_sessions")
+
+
+# ==========================================
+# KONSTANTA RBAC (Python Enum / Const)
 # ==========================================
 class AdminRole(str, enum.Enum):
     SUPERADMIN = "superadmin"

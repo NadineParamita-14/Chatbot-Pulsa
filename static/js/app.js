@@ -922,6 +922,7 @@ function renderAgentConfig() {
 /** Tampilkan View 1 (daftar agent) dan sembunyikan form. */
 function showAgentList() {
   currentSelectedAgent = null;
+  stopWahaQrPolling(); // polling QR milik form yang ditinggalkan — matikan
   document.getElementById("agent-form-view").classList.add("hidden");
   document.getElementById("agent-list-view").classList.remove("hidden");
   renderAgentCards();
@@ -1040,12 +1041,21 @@ async function renderAgentForm(agentId) {
 
   container.innerHTML = `
     <div class="w-full bg-white rounded-2xl shadow-sm p-5">
-      <div class="flex items-center justify-between mb-4">
+      <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div>
           <h3 class="font-bold text-slate-900">${esc(cfg.agent_id)}</h3>
           <p class="text-xs text-slate-400">Terakhir diubah: ${formatDateTime(cfg.updated_at)}</p>
         </div>
-        <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-xs">${esc(cfg.provider)}</span>
+        <div class="flex items-center gap-2">
+          <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-xs">${esc(cfg.provider)}</span>
+          <button type="button" id="btn-generate-qr" title="Tautkan nomor WhatsApp baru untuk agent ini"
+            class="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-sm hover:shadow-md transition-all">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z"/>
+            </svg>
+            Generate QR WA
+          </button>
+        </div>
       </div>
       <form data-config-id="${cfg.id}" class="space-y-3">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1105,10 +1115,14 @@ async function renderAgentForm(agentId) {
       </form>
     </div>`;
 
-  // Pre-select model tersimpan, pasang toggle mata, lalu handler submit
+  // Pre-select model tersimpan, pasang toggle mata, tombol Generate QR WA,
+  // lalu handler submit
   const form = container.querySelector("form[data-config-id]");
   form.querySelector("select[name='model_name']").value = cfg.model_name;
   bindTokenEyeToggle(form);
+  container
+    .querySelector("#btn-generate-qr")
+    .addEventListener("click", () => startWahaSession(agentId));
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1132,6 +1146,9 @@ async function renderAgentForm(agentId) {
       showToast(e.message, "error");
     }
   });
+
+  // Perangkat WhatsApp (WAHA) milik agent ini, tampil di bawah form
+  renderAgentWahaDevices(agentId);
 }
 
 // ---------------------------------------------------------------------
@@ -1321,6 +1338,7 @@ function wahaStatusBadge(status) {
     WORKING: "bg-emerald-100 text-emerald-800",
     CONNECTED: "bg-emerald-100 text-emerald-800",
     SCAN_QR: "bg-amber-100 text-amber-800",
+    SCAN_QR_CODE: "bg-amber-100 text-amber-800",
     STARTING: "bg-amber-100 text-amber-800",
     FAILED: "bg-rose-100 text-rose-800",
     STOPPED: "bg-slate-200 text-slate-700",
@@ -1412,6 +1430,226 @@ async function fetchWahaSessions(silent = false) {
     </div>`
     )
     .join("");
+}
+
+// =====================================================================
+// VIEW: AGENT CONFIG — PERANGKAT WHATSAPP (WAHA MULTI-DEVICE)
+// Satu agent dapat menautkan beberapa nomor WhatsApp sekaligus.
+// Alur "Generate QR WA": POST start -> modal QR -> polling tiap 3 dtk
+// (gambar QR + status sesi) sampai WORKING (tertaut) / modal ditutup /
+// batas waktu 2 menit tercapai.
+// =====================================================================
+const wahaDeviceState = {
+  agentId: null,   // agent yang daftar perangkatnya sedang ditampilkan
+  qrSession: null, // sesi yang sedang menunggu scan QR di modal
+  qrTimer: null,   // handle setInterval polling QR
+  qrDeadline: 0,   // batas waktu polling (ms epoch) agar tidak abadi
+};
+
+/** Muat & render daftar perangkat WAHA milik agent di bawah form config. */
+async function renderAgentWahaDevices(agentId) {
+  const box = document.getElementById("agent-waha-devices");
+  if (!box) return;
+  wahaDeviceState.agentId = agentId;
+  box.classList.remove("hidden");
+  setLoading(box);
+
+  let res;
+  try {
+    res = await Api.get(`/agent/${encodeURIComponent(agentId)}/waha/sessions`);
+  } catch (e) {
+    box.innerHTML = `
+      <div class="bg-white rounded-2xl shadow-sm p-8 text-center">
+        <p class="text-sm text-slate-500">${esc(e.message)}</p>
+        <p class="text-xs text-slate-400 mt-1">Periksa apakah server WAHA berjalan, lalu buka ulang form ini.</p>
+      </div>`;
+    return;
+  }
+
+  const devices = res.data || [];
+
+  box.innerHTML = `
+    <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 class="font-semibold text-slate-800">Perangkat WhatsApp Tertaut</h3>
+          <p class="text-xs text-slate-500 mt-0.5">
+            Nomor WhatsApp yang melayani agent ini — status diperbarui saat form dibuka.
+          </p>
+        </div>
+        <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
+          ${devices.length} perangkat
+        </span>
+      </div>
+      <div class="divide-y divide-slate-100">
+        ${
+          devices.length
+            ? devices
+                .map(
+                  (d) => `
+          <div class="px-5 py-3 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors">
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="w-9 h-9 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/>
+                </svg>
+              </div>
+              <div class="min-w-0">
+                <p class="text-sm font-medium text-slate-800 truncate">
+                  ${esc(d.phone || "nomor belum terhubung")}
+                  ${d.push_name ? `<span class="text-slate-400 font-normal">· ${esc(d.push_name)}</span>` : ""}
+                </p>
+                <p class="text-xs text-slate-400 font-mono truncate">${esc(d.session_name)}</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-3 flex-shrink-0">
+              ${wahaStatusBadge(d.status)}
+              <button type="button" data-waha-delete="${esc(d.session_name)}"
+                title="Logout & hapus perangkat"
+                class="inline-flex items-center justify-center p-1.5 rounded-lg text-red-600 hover:text-red-800 hover:bg-red-50 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+                </svg>
+              </button>
+            </div>
+          </div>`
+                )
+                .join("")
+            : `<div class="px-5 py-8 text-center">
+                 <p class="text-sm text-slate-500">Belum ada perangkat WhatsApp tertaut.</p>
+                 <p class="text-xs text-slate-400 mt-1">Klik “Generate QR WA” untuk menautkan nomor pertama.</p>
+               </div>`
+        }
+      </div>
+    </div>`;
+
+  // Kartu/baris dinamis -> pasang ulang listener hapus tiap render
+  box.querySelectorAll("[data-waha-delete]").forEach((btn) => {
+    btn.addEventListener("click", () =>
+      deleteAgentWahaSession(agentId, btn.dataset.wahaDelete)
+    );
+  });
+}
+
+/** POST start sesi WAHA baru untuk agent, lalu buka modal QR + polling. */
+async function startWahaSession(agentId) {
+  const btn = document.getElementById("btn-generate-qr");
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add("opacity-60", "pointer-events-none");
+  }
+  try {
+    const res = await Api.post(`/agent/${encodeURIComponent(agentId)}/waha/start`);
+    openWahaQrModal(agentId, res.data.session_name);
+    renderAgentWahaDevices(agentId); // sesi baru langsung muncul di daftar
+  } catch (e) {
+    showToast(e.message, "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.classList.remove("opacity-60", "pointer-events-none");
+    }
+  }
+}
+
+/** Buka modal QR & mulai polling status sesi tiap 3 detik. */
+function openWahaQrModal(agentId, sessionName) {
+  stopWahaQrPolling(); // bersihkan polling sesi sebelumnya bila ada
+
+  wahaDeviceState.agentId = agentId;
+  wahaDeviceState.qrSession = sessionName;
+  wahaDeviceState.qrDeadline = Date.now() + 2 * 60 * 1000; // maks 2 menit
+
+  document.getElementById("waha-qr-img").classList.add("hidden");
+  document.getElementById("waha-qr-img").removeAttribute("src");
+  document.getElementById("waha-qr-spinner").classList.remove("hidden");
+  document.getElementById("waha-qr-status").textContent = "Menyiapkan sesi…";
+  openModal("modal-waha-qr");
+
+  pollWahaQrTick(); // tick pertama tanpa menunggu 3 detik
+  wahaDeviceState.qrTimer = setInterval(pollWahaQrTick, 3000);
+}
+
+/** Satu iterasi polling: tarik gambar QR + cek status sesi di WAHA. */
+async function pollWahaQrTick() {
+  const { agentId, qrSession, qrDeadline } = wahaDeviceState;
+  if (!qrSession) return;
+
+  // Batas waktu tercapai: berhenti & minta admin generate ulang
+  if (Date.now() > qrDeadline) {
+    stopWahaQrPolling();
+    document.getElementById("waha-qr-status").textContent =
+      "QR tidak tersedia / sesi terlalu lama menunggu. Silakan Generate QR WA lagi.";
+    return;
+  }
+
+  const statusEl = document.getElementById("waha-qr-status");
+
+  // 1) Cek status sesi: WORKING = perangkat sudah tertaut -> selesai
+  try {
+    const res = await Api.get(`/agent/${encodeURIComponent(agentId)}/waha/sessions`);
+    const device = (res.data || []).find((d) => d.session_name === qrSession);
+    if (device && device.status === "WORKING") {
+      const phone = device.phone || "perangkat";
+      stopWahaQrPolling();
+      showToast(`Perangkat ${phone} berhasil tertaut!`);
+      renderAgentWahaDevices(agentId);
+      return;
+    }
+    if (device && device.status) {
+      statusEl.textContent = device.status.startsWith("SCAN_QR")
+        ? "Menunggu scan QR dari WhatsApp…"
+        : `Status sesi: ${device.status}…`;
+    }
+  } catch (e) {
+    statusEl.textContent = e.message; // coba lagi di tick berikutnya
+  }
+
+  // 2) Muat gambar QR (WAHA kadang butuh beberapa detik sebelum menerbitkan)
+  try {
+    const qrRes = await Api.get(
+      `/waha/session/${encodeURIComponent(qrSession)}/qr`
+    );
+    if (qrRes.data && qrRes.data.qr) {
+      const img = document.getElementById("waha-qr-img");
+      img.src = qrRes.data.qr;
+      img.classList.remove("hidden");
+      document.getElementById("waha-qr-spinner").classList.add("hidden");
+    }
+  } catch (e) {
+    // QR belum terbit — biarkan spinner; pesan detail sudah di status
+  }
+}
+
+/** Hentikan polling QR & tutup modalnya (idempoten, aman dipanggil dua kali). */
+function stopWahaQrPolling() {
+  if (wahaDeviceState.qrTimer) {
+    clearInterval(wahaDeviceState.qrTimer);
+    wahaDeviceState.qrTimer = null;
+  }
+  wahaDeviceState.qrSession = null;
+  closeModal("modal-waha-qr");
+}
+
+/** Logout & hapus perangkat WAHA agent (dengan konfirmasi). */
+function deleteAgentWahaSession(agentId, sessionName) {
+  openConfirm({
+    title: "Hapus Perangkat WhatsApp",
+    message: `Perangkat "${sessionName}" akan di-logout dari WhatsApp dan dihapus. Lanjutkan?`,
+    confirmText: "Ya, Hapus",
+    danger: true,
+    onConfirm: async () => {
+      try {
+        await Api.del(
+          `/agent/${encodeURIComponent(agentId)}/waha/session/${encodeURIComponent(sessionName)}`
+        );
+        showToast("Perangkat WhatsApp berhasil dihapus.");
+        renderAgentWahaDevices(agentId);
+      } catch (e) {
+        showToast(e.message, "error");
+      }
+    },
+  });
 }
 
 // =====================================================================
@@ -1541,6 +1779,12 @@ document.addEventListener("DOMContentLoaded", () => {
   // agar input lama tidak terbawa saat modal dibuka berikutnya.
   document.querySelectorAll("#modal-agent [data-close-modal]").forEach((el) => {
     el.addEventListener("click", () => document.getElementById("agent-create-form").reset());
+  });
+
+  // Modal QR WhatsApp: hentikan polling sesi saat ditutup lewat
+  // tombol Tutup maupun klik overlay gelap.
+  document.querySelectorAll("#modal-waha-qr [data-close-modal]").forEach((el) => {
+    el.addEventListener("click", stopWahaQrPolling);
   });
 
   // Form produk & admin
