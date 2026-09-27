@@ -911,3 +911,31 @@ Phase 1 of the universal identity database migration (`users` table) was success
    - Utilize the prepared `parse_waha_sender()` and `get_user_by_route()` helpers to extract incoming JSON payloads.
    - Implement the exact same Redis-backed 3-strike toxicity rule (gatekeeper logic) used in the Telegram webhook.
    - Route the validated message to the AI agent and structure the API request to send the reply back via WAHA.
+
+# Context
+We are expanding the Flask admin dashboard (`index.html`, `app.js`, `app.py`) to include a new global monitoring menu called "WhatsApp Session". This menu will allow the admin to see all connected/disconnected WAHA (WhatsApp HTTP API) sessions at a glance, without needing to open the WAHA dashboard. 
+
+*Note: Do NOT implement the QR generation or database relations for Multi-Device Agent Configs yet. Focus STRICTLY on the "WhatsApp Session" global monitoring UI and its backend proxy route.*
+
+# Tasks
+
+1. **Backend: Create WAHA Proxy Route (`app.py`)**
+   - Add a new route `@app.route('/api/waha/sessions', methods=['GET'])`.
+   - This route should make an HTTP GET request to the WAHA server's sessions endpoint (e.g., `http://waha:3000/api/sessions` or parse the URL from existing `.env` WAHA variables).
+   - Fetch the session data (which contains session names, status, and connected phone numbers/me data) and return it as JSON to the frontend.
+   - Include error handling (try/except) so that if the WAHA container is down or unreachable, the Flask app doesn't crash but instead returns a graceful JSON error message (e.g., `{"error": "WAHA server unreachable", "sessions": []}`).
+
+2. **Frontend: Update HTML (`index.html`)**
+   - Add a new menu item in the left sidebar named "WhatsApp Session" (place it near "Agent Config" or "Riwayat Chat"). Use a fitting SVG icon (like a phone or message icon).
+   - Create a new main content container, for example `<div id="whatsapp-session-view" class="hidden flex-1 p-4 md:p-6">`.
+   - Inside this container, design a UI layout using Tailwind CSS. It should support a Grid of Cards or a clean Table to display the sessions. 
+   - Each item should display:
+     - **Session Name**
+     - **Phone Number** (extracted from the `me` object if available)
+     - **Status Badge** (Green for `WORKING` / `CONNECTED`, Red/Yellow for `STOPPED` / `FAILED` / `SCAN_QR`).
+
+3. **Frontend: Update JavaScript (`app.js`)**
+   - Add the necessary DOM manipulation to handle the sidebar click (hide other views, show `whatsapp-session-view`, update active states on the sidebar).
+   - Write a function `fetchWahaSessions()` that makes a `fetch()` call to `/api/waha/sessions`.
+   - Parse the JSON and dynamically render the HTML for the cards/table inside the view container.
+   - (Optional but recommended) Add a "Refresh" button on the UI to call this function manually, or set it to poll every 15-30 seconds when the view is active.

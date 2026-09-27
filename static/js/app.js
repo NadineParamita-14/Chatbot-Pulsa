@@ -1307,6 +1307,114 @@ async function uploadDocument(event) {
 }
 
 // =====================================================================
+// VIEW: WHATSAPP SESSION — monitoring sesi WAHA
+// ---------------------------------------------------------------------
+// Polling tiap 20 detik hanya saat view ini aktif; timer menghentikan
+// dirinya sendiri begitu route berpindah (cek currentRouteName).
+// =====================================================================
+const wahaState = { timer: null };
+
+/** Badge status sesi WAHA: hijau = nyala, kuning = proses, merah/abu = mati. */
+function wahaStatusBadge(status) {
+  const s = (status || "").toUpperCase();
+  const colorMap = {
+    WORKING: "bg-emerald-100 text-emerald-800",
+    CONNECTED: "bg-emerald-100 text-emerald-800",
+    SCAN_QR: "bg-amber-100 text-amber-800",
+    STARTING: "bg-amber-100 text-amber-800",
+    FAILED: "bg-rose-100 text-rose-800",
+    STOPPED: "bg-slate-200 text-slate-700",
+  };
+  const cls = colorMap[s] || "bg-slate-100 text-slate-600";
+  return `<span class="px-2.5 py-0.5 inline-flex text-xs font-medium rounded-full ${cls}">${esc(s || "UNKNOWN")}</span>`;
+}
+
+/** Entry point route #waha — dipanggil oleh router.js; mulai siklus polling. */
+async function renderWahaSessions() {
+  // Hentikan polling sisa kunjungan sebelumnya agar tidak dobel interval
+  if (wahaState.timer) {
+    clearInterval(wahaState.timer);
+    wahaState.timer = null;
+  }
+
+  await fetchWahaSessions();
+
+  // Polling periodik; berhenti otomatis saat pengguna pindah halaman
+  wahaState.timer = setInterval(() => {
+    if (currentRouteName() !== "waha") {
+      clearInterval(wahaState.timer);
+      wahaState.timer = null;
+      return;
+    }
+    fetchWahaSessions(true); // silent: tanpa spinner saat polling
+  }, 20000);
+}
+
+/** Ambil status sesi dari GET /api/waha/sessions lalu render kartu. */
+async function fetchWahaSessions(silent = false) {
+  const grid = document.getElementById("waha-sessions-grid");
+  if (!silent) setLoading(grid);
+
+  let res;
+  try {
+    res = await Api.get("/waha/sessions");
+  } catch (e) {
+    // Kegagalan jaringan/server: tampilkan pesan di dalam view, bukan toast,
+    // agar polling tidak membanjiri notifikasi.
+    grid.innerHTML = `
+      <div class="col-span-full flex flex-col items-center justify-center gap-2 py-10 text-center">
+        <svg class="w-12 h-12 text-rose-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+        </svg>
+        <p class="text-sm font-medium text-slate-600">${esc(e.message)}</p>
+        <p class="text-xs text-slate-400">Periksa apakah container WAHA berjalan, lalu klik Refresh.</p>
+      </div>`;
+    return;
+  }
+
+  const sessions = res.data || [];
+
+  // WAHA tak terjangkau (backend mengembalikan list kosong + pesan)
+  if (!sessions.length) {
+    grid.innerHTML = `
+      <div class="col-span-full py-10 text-center">
+        <p class="text-sm font-medium text-slate-500">Tidak ada sesi WhatsApp.</p>
+        ${res.message && res.message !== "OK" ? `<p class="text-xs text-slate-400 mt-1">${esc(res.message)}</p>` : ""}
+      </div>`;
+    return;
+  }
+
+  grid.innerHTML = sessions
+    .map(
+      (s) => `
+    <div class="border border-slate-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/>
+            </svg>
+          </div>
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-slate-800 truncate">${esc(s.name)}</p>
+            <p class="text-xs text-slate-400 font-mono truncate">${esc(s.phone || "nomor belum terhubung")}</p>
+          </div>
+        </div>
+        ${wahaStatusBadge(s.status)}
+      </div>
+      <div class="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+        <span>Nama WhatsApp: <span class="font-medium text-slate-700">${esc(s.push_name || "-")}</span></span>
+        <span class="inline-flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full ${(s.status || "").toUpperCase() === "WORKING" ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}"></span>
+          ${(s.status || "").toUpperCase() === "WORKING" ? "Terhubung" : "Tidak terhubung"}
+        </span>
+      </div>
+    </div>`
+    )
+    .join("");
+}
+
+// =====================================================================
 // VIEW: ADMIN MANAGEMENT (superadmin)
 // =====================================================================
 async function renderAdmins() {
@@ -1524,6 +1632,11 @@ document.addEventListener("DOMContentLoaded", () => {
       event.target.files && event.target.files.length
         ? event.target.files[0].name
         : "Klik untuk memilih file PDF";
+  });
+
+  // WhatsApp Session: tombol Refresh memicu pengambilan data manual (dgn spinner)
+  document.getElementById("btn-refresh-waha").addEventListener("click", () => {
+    fetchWahaSessions();
   });
 
   // Jalankan router pertama kali (hash default -> sesuai status login)

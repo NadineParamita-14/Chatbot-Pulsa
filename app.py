@@ -2080,6 +2080,45 @@ def delete_knowledge_base(doc_id: int):
 
 
 # =====================================================================
+# ENDPOINT: WAHA SESSION MONITORING (proxy status sesi WhatsApp)
+# =====================================================================
+@app.route("/api/waha/sessions", methods=["GET"])
+@admin_required  # read-only: aman untuk semua role admin
+@api_endpoint
+def list_waha_sessions():
+    """Proxy daftar sesi WhatsApp dari server WAHA untuk menu monitoring.
+
+    Bila WAHA mati/tak terjangkau, jangan crash — kembalikan daftar kosong
+    dengan pesan agar UI tetap tampil dan admin tahu bahwa WAHA bermasalah.
+    """
+    try:
+        resp = requests.get(
+            f"{WAHA_BASE_URL}/api/sessions",
+            headers=_waha_headers(),
+            timeout=10,
+        )
+        if resp.status_code >= 400:
+            return ok(data=[], message=f"WAHA menolak permintaan (HTTP {resp.status_code}).")
+        raw = resp.json()
+    except (requests.RequestException, ValueError) as e:
+        print(f"[WAHA] Gagal mengambil daftar sesi: {e}")
+        return ok(data=[], message="WAHA server unreachable")
+
+    # Identitas WA: nomor ada di me.id ('62xxx@c.us'), nama tampilan di pushName
+    sessions = []
+    for s in raw if isinstance(raw, list) else []:
+        me = s.get("me") or {}
+        raw_id = me.get("id") or ""
+        sessions.append({
+            "name": s.get("name"),
+            "status": s.get("status"),
+            "phone": raw_id.split("@")[0] if raw_id else None,
+            "push_name": me.get("pushName"),
+        })
+    return ok(data=sessions)
+
+
+# =====================================================================
 # ENDPOINT: ADMIN MANAGEMENT (khusus superadmin)
 # =====================================================================
 def _is_last_superadmin(db, admin_id: int) -> bool:

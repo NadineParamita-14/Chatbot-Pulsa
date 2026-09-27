@@ -103,6 +103,14 @@
           Riwayat Chat
         </a>
 
+        <a href="#waha" data-route="waha"
+           class="nav-link group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/10 hover:text-white transition-colors">
+          <svg class="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/>
+          </svg>
+          WhatsApp Session
+        </a>
+
         <!-- Dua link di bawah ini hanya tampil untuk superadmin (dikontrol app.js) -->
         <a href="#knowledge-base" data-route="knowledge-base"
            class="nav-link group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/10 hover:text-white transition-colors">
@@ -454,6 +462,27 @@
               ⬅ Kembali
             </button>
             <div id="agent-configs-container" class="w-full"></div>
+          </div>
+        </section>
+
+        <!-- VIEW: WHATSAPP SESSION — monitoring sesi WAHA (kartu dirender app.js) -->
+        <section id="view-waha" class="view hidden">
+          <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
+            <div class="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 class="font-semibold text-slate-800">Sesi WhatsApp (WAHA)</h3>
+                <p class="text-xs text-slate-500 mt-0.5">Status koneksi WhatsApp bot — diperbarui otomatis tiap 20 detik.</p>
+              </div>
+              <button id="btn-refresh-waha"
+                class="flex items-center gap-2 bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow-sm hover:shadow-md transition-all">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992V4.356m0 4.992l-3.181-3.183a8.25 8.25 0 00-13.803 3.7M3.985 14.652H8.977m-4.992 0v4.992m0-4.992l3.181 3.183a8.25 8.25 0 0013.803-3.7"/>
+                </svg>
+                Refresh
+              </button>
+            </div>
+            <!-- Kartu sesi diisi oleh app.js (fetchWahaSessions) -->
+            <div id="waha-sessions-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 p-5"></div>
           </div>
         </section>
 

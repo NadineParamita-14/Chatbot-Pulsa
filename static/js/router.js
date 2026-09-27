@@ -19,6 +19,11 @@ const Routes = {
   products: { view: "view-products", title: "Produk", render: () => renderProducts() },
   orders: { view: "view-orders", title: "Pesanan", render: () => renderOrders() },
   chats: { view: "view-chats", title: "Riwayat Chat", render: () => renderChats() },
+  waha: {
+    view: "view-waha",
+    title: "WhatsApp Session",
+    render: () => renderWahaSessions(),
+  },
   "knowledge-base": {
     view: "view-knowledge-base",
     title: "Knowledge Base",
