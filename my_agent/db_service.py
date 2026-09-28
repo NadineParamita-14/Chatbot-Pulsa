@@ -1,7 +1,7 @@
 import json
 import uuid
-from datetime import datetime, timezone
-from sqlalchemy import func
+from datetime import datetime, timedelta, timezone
+from sqlalchemy import distinct, func
 from sqlalchemy.exc import IntegrityError
 from models import (
     SessionLocal,
@@ -1021,6 +1021,62 @@ def get_ai_usage_summary() -> dict:
             "total_tokens_this_month": int(month_row[0] or 0),
             "total_cost_this_month": float(month_row[1] or 0.0),
             "total_conversations_today": int(chats_today or 0),
+        }
+    finally:
+        session.close()
+
+
+def get_dashboard_charts() -> dict:
+    """Dua dataset chart dashboard (satu panggilan /api/dashboard/charts):
+
+    1. models — total biaya AI per model (bulan berjalan), dari ai_usage_logs.
+    2. users  — jumlah pelanggan unik per hari, 7 hari terakhir (dihitung
+       dari DISTINCT platform_id di chat_histories; hari tanpa chat = 0).
+    """
+    session = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        # 1. Biaya per model AI — bulan berjalan, urut biaya terbesar
+        model_rows = (
+            session.query(
+                AiUsageLog.model_name,
+                func.coalesce(func.sum(AiUsageLog.total_cost), 0.0),
+            )
+            .filter(AiUsageLog.created_at >= start_of_month)
+            .group_by(AiUsageLog.model_name)
+            .order_by(func.sum(AiUsageLog.total_cost).desc())
+            .all()
+        )
+
+        # 2. Pelanggan unik per hari — 7 hari terakhir termasuk hari ini
+        start_7d = (now - timedelta(days=6)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        user_rows = (
+            session.query(
+                func.date(ChatHistory.created_at).label("day"),
+                func.count(distinct(User.platform_id)),
+            )
+            .join(User, User.id == ChatHistory.user_id)
+            .filter(ChatHistory.created_at >= start_7d)
+            .group_by(func.date(ChatHistory.created_at))
+            .all()
+        )
+        count_by_day = {str(r.day): int(r[1] or 0) for r in user_rows}
+        user_labels, user_values = [], []
+        for i in range(7):
+            day = (start_7d + timedelta(days=i)).date()
+            user_labels.append(day.strftime("%d %b"))
+            user_values.append(count_by_day.get(day.isoformat(), 0))
+
+        return {
+            "models": {
+                "labels": [r[0] for r in model_rows],
+                "values": [float(r[1] or 0.0) for r in model_rows],
+            },
+            "users": {"labels": user_labels, "values": user_values},
         }
     finally:
         session.close()

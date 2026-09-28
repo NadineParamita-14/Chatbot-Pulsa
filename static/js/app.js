@@ -261,6 +261,10 @@ async function renderDashboard() {
   const res = await Api.get("/dashboard/stats");
   const s = res.data;
 
+  // Chart paralel: kegagalan endpoint chart tidak boleh menggagalkan
+  // render kartu statistik & tabel pesanan.
+  renderDashboardCharts().catch((e) => showToast(e.message, "error"));
+
   const cards = [
     {
       label: "Total Pendapatan", value: formatIDR(s.total_revenue), color: "bg-green-500",
@@ -338,6 +342,104 @@ async function renderDashboard() {
         )
         .join("")
     : emptyRow(5);
+}
+
+// =====================================================================
+// CHART DASHBOARD (Chart.js) — penggunaan model AI & tren pelanggan
+// Instansi disimpan agar chart lama di-destroy sebelum render ulang
+// (Chart.js tidak boleh dibuat dua kali di canvas yang sama).
+// =====================================================================
+const dashboardCharts = { models: null, users: null };
+
+async function renderDashboardCharts() {
+  if (typeof Chart === "undefined") return; // CDN gagal — lewati diam-diam
+
+  const res = await Api.get("/dashboard/charts");
+  const { models, users } = res.data;
+
+  // Tipografi chart mengikuti UI (Plus Jakarta Sans)
+  Chart.defaults.font.family = "Plus Jakarta Sans, sans-serif";
+
+  if (dashboardCharts.models) dashboardCharts.models.destroy();
+  if (dashboardCharts.users) dashboardCharts.users.destroy();
+
+  // 1. Bar chart biaya per model AI — hitam minimalis, sudut membulat
+  const modelsCtx = document.getElementById("chart-models");
+  if (modelsCtx) {
+    dashboardCharts.models = new Chart(modelsCtx, {
+      type: "bar",
+      data: {
+        labels: models.labels,
+        datasets: [
+          {
+            data: models.values,
+            backgroundColor: "#111827",
+            borderRadius: 8,
+            maxBarThickness: 48,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: { label: (ctx) => formatIDR(ctx.parsed.y) },
+          },
+        },
+        scales: {
+          x: { grid: { display: false }, border: { display: false } },
+          y: {
+            grid: { display: false },
+            border: { display: false },
+            ticks: { callback: (v) => formatIDR(v) },
+          },
+        },
+      },
+    });
+  }
+
+  // 2. Line chart tren pelanggan 7 hari — kurva halus + area transparan
+  const usersCtx = document.getElementById("chart-users");
+  if (usersCtx) {
+    dashboardCharts.users = new Chart(usersCtx, {
+      type: "line",
+      data: {
+        labels: users.labels,
+        datasets: [
+          {
+            data: users.values,
+            borderColor: "#3b82f6",
+            backgroundColor: "rgba(59, 130, 246, 0.1)",
+            fill: true,
+            tension: 0.4,
+            pointRadius: 0,
+            pointHoverRadius: 6,
+            borderWidth: 2,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: { label: (ctx) => `${ctx.parsed.y} pelanggan` },
+          },
+        },
+        scales: {
+          x: { grid: { display: false }, border: { display: false } },
+          y: {
+            grid: { display: false },
+            border: { display: false },
+            ticks: { precision: 0 },
+          },
+        },
+      },
+    });
+  }
 }
 
 // =====================================================================

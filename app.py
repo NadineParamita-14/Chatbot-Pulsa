@@ -77,6 +77,7 @@ from db_service import (  # noqa: E402
     get_agent_config,
     get_agent_telegram_token,
     get_ai_usage_logs,
+    get_dashboard_charts,
     get_ai_usage_summary,
     get_all_rag_knowledge,
     get_chatted_users,
@@ -449,6 +450,15 @@ def logout():
 # =====================================================================
 # ENDPOINT: DASHBOARD
 # =====================================================================
+@app.route("/api/dashboard/charts", methods=["GET"])
+@admin_required
+@api_endpoint
+def dashboard_charts():
+    """Dataset dua chart dashboard: biaya AI per model (bulan ini) dan
+    tren pelanggan unik 7 hari terakhir."""
+    return ok(data=get_dashboard_charts())
+
+
 @app.route("/api/dashboard/stats", methods=["GET"])
 @admin_required
 @api_endpoint

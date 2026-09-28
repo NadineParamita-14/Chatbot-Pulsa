@@ -1131,3 +1131,36 @@ The UI must strictly follow the newly implemented modern, minimalist aesthetic (
    - Write an async function `fetchAiUsage()` that calls `GET /api/ai-usage`.
    - Dynamically render the summary stats into the 3 cards. Format the cost as Indonesian Rupiah (e.g., `Rp 1.520`).
    - Loop through the `logs` array and render the rows into the table body. Format the timestamp to a readable format (e.g., `dd MMM yyyy, HH:mm`).
+
+# Context
+The user wants to enhance the main Dashboard view (`#dashboard`) by adding two data visualization charts between the top summary cards and the bottom "Pesanan Terbaru" table. 
+The charts must strictly adhere to the modern, minimalist "Enblox" aesthetic: clean white cards, soft shadows, no harsh grid lines, and smooth/rounded chart elements. We will use Chart.js for rendering.
+
+# Tasks
+
+1. **Include Chart.js (`index.html`)**
+   - Add the Chart.js CDN script inside the `<head>` of `index.html` (e.g., `<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>`).
+
+2. **Frontend UI Layout (`index.html`)**
+   - In the `#dashboard` view, locate the space between the top 8 summary cards and the bottom "Pesanan Terbaru" section.
+   - Insert a new Grid container: `<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">`.
+   - Inside this grid, create two chart cards. Both must use the styling: `bg-white rounded-3xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)]`.
+   - Card 1 (Model Usage): Add a clean heading (e.g., `<h3 class="text-lg font-bold text-gray-900 mb-4">Penggunaan Model AI (Biaya)</h3>`) and a `<canvas id="chart-models"></canvas>`.
+   - Card 2 (User Trend): Add a heading (e.g., `<h3 class="text-lg font-bold text-gray-900 mb-4">Tren Pelanggan Aktif (7 Hari)</h3>`) and a `<canvas id="chart-users"></canvas>`.
+
+3. **Backend API (`app.py`)**
+   - Create a new endpoint `GET /api/dashboard/charts` (protected by admin auth).
+   - **Data 1 (Models):** Query the `ai_usage_logs` table. Group by `model_name` and calculate the SUM of `total_cost` (or token counts) for all time or the current month. Return the labels (model names) and values.
+   - **Data 2 (Users):** Query the `chat_histories` (or `users`/`ai_usage_logs`) table. Group by Date for the last 7 days, counting the DISTINCT `platform_id` (unique users). Return an array of the last 7 dates and their corresponding user counts.
+   - Return both datasets in a single JSON response.
+
+4. **Frontend JS Logic (`app.js`)**
+   - Create a function `renderDashboardCharts()` that fetches data from `/api/dashboard/charts`.
+   - **Initialize Bar Chart (`#chart-models`):** 
+     - Data: The model usage stats.
+     - Style: Use a dark minimalist color (e.g., `backgroundColor: '#111827'`), set `borderRadius: 8` for rounded bars.
+     - Options: Hide X and Y axis grid lines (`display: false`). Hide the legend if it's self-explanatory. Use the modern font family.
+   - **Initialize Line Chart (`#chart-users`):**
+     - Data: The 7-day user trend.
+     - Style: Use a vibrant accent color (e.g., `borderColor: '#3b82f6'`), set `tension: 0.4` to make the line a smooth curve instead of jagged edges. Set `fill: true` with a highly transparent background color (e.g., `rgba(59, 130, 246, 0.1)`) for an area effect.
+     - Options: Hide X and Y axis grid lines. Remove data points (dots) on the line unless hovered (`pointRadius: 0`, `pointHoverRadius: 6`) for a cleaner look.
