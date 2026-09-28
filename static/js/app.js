@@ -583,7 +583,33 @@ function verifyCurrentOrder() {
 // Kontak diidentifikasi lewat user_id (users.id) — mendukung pengguna
 // Telegram maupun WhatsApp (kolom channel/platform_id).
 // =====================================================================
-const chatsState = { agentId: null, activeId: null, users: [], isManualMode: false };
+const chatsState = { agentId: null, activeId: null, users: [], isManualMode: false, channelFilter: "all" };
+
+// Tombol filter channel pane kiri chat: aktif = warna brand, nonaktif =
+// abu redup. "all" (universal inbox) = kedua tombol dalam kondisi nonaktif.
+const CHANNEL_FILTER_UI = {
+  whatsapp: { btn: "filter-wa", active: "bg-green-500 text-white shadow-sm", label: "WhatsApp" },
+  telegram: { btn: "filter-tg", active: "bg-blue-500 text-white shadow-sm", label: "Telegram" },
+  inactive: "bg-gray-100 text-gray-500 hover:bg-gray-200",
+};
+
+/** Cat ulang kedua tombol filter sesuai chatsState.channelFilter. */
+function applyChannelFilterUI() {
+  for (const channel of ["whatsapp", "telegram"]) {
+    const ui = CHANNEL_FILTER_UI[channel];
+    const active = chatsState.channelFilter === channel;
+    document.getElementById(ui.btn).className = `flex-1 px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
+      active ? ui.active : CHANNEL_FILTER_UI.inactive
+    }`;
+  }
+}
+
+/** Klik filter: aktifkan channel tsb; klik tombol yang sudah aktif = "all". */
+function toggleChannelFilter(channel) {
+  chatsState.channelFilter = chatsState.channelFilter === channel ? "all" : channel;
+  applyChannelFilterUI();
+  renderChatUserList();
+}
 
 /** Jam:menit untuk gelembung pesan. */
 function formatTime(iso) {
@@ -713,11 +739,22 @@ async function renderChatUserListPane() {
   if (chatsState.activeId) await loadChatConversation(chatsState.activeId);
 }
 
-/** Render pane kiri: kontak diurutkan dari pesan terbaru. */
+/** Render pane kiri: kontak diurutkan dari pesan terbaru.
+ *  Daftar disaring dulu berdasarkan chatsState.channelFilter
+ *  ("all" = universal inbox, atau "whatsapp"/"telegram" saja). */
 function renderChatUserList() {
   const listEl = document.getElementById("chat-user-list");
-  listEl.innerHTML = chatsState.users.length
-    ? chatsState.users
+  const visibleUsers =
+    chatsState.channelFilter === "all"
+      ? chatsState.users
+      : chatsState.users.filter((u) => u.channel === chatsState.channelFilter);
+  const emptyText =
+    chatsState.channelFilter === "all"
+      ? "Belum ada pengguna yang chat."
+      : `Belum ada pengguna ${CHANNEL_FILTER_UI[chatsState.channelFilter].label}.`;
+
+  listEl.innerHTML = visibleUsers.length
+    ? visibleUsers
         .map((u) => {
           const isActive = u.user_id === chatsState.activeId;
           const name = u.full_name || u.username || `User ${u.platform_id}`;
@@ -749,7 +786,7 @@ function renderChatUserList() {
       </button>`;
         })
         .join("")
-    : `<div class="px-4 py-10 text-center text-sm text-slate-400">Belum ada pengguna yang chat.</div>`;
+    : `<div class="px-4 py-10 text-center text-sm text-slate-400">${esc(emptyText)}</div>`;
 
   listEl.querySelectorAll("button[data-user-id]").forEach((btn) => {
     btn.addEventListener("click", () => selectChatUser(Number(btn.dataset.userId)));
@@ -1833,6 +1870,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // Riwayat Chat: tombol "⬅ Kembali ke Daftar Agent" (Tahap 2 -> Tahap 1);
   // klik kartu agent dipasang di renderChatAgentCards karena kartu dinamis.
   document.getElementById("chat-agent-back-btn").addEventListener("click", showChatAgentPicker);
+
+  // Filter channel pane kiri (WhatsApp/Telegram; klik tombol aktif lagi = semua)
+  document.getElementById("filter-wa").addEventListener("click", () => toggleChannelFilter("whatsapp"));
+  document.getElementById("filter-tg").addEventListener("click", () => toggleChannelFilter("telegram"));
 
   // Tombol kembali ke daftar kontak (hanya tampil di mobile)
   document.getElementById("chat-back-btn").addEventListener("click", () => {

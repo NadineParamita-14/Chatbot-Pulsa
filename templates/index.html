@@ -303,6 +303,17 @@
                 <div class="px-4 py-3 border-b border-slate-200">
                   <h3 class="font-semibold text-slate-800">Percakapan</h3>
                 </div>
+                <!-- Filter channel: klik untuk saring, klik lagi untuk semua channel -->
+                <div class="px-4 py-3 border-b border-slate-200 flex items-center gap-2">
+                  <button type="button" id="filter-wa"
+                    class="flex-1 px-5 py-2.5 rounded-lg text-sm font-semibold bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors">
+                    WhatsApp
+                  </button>
+                  <button type="button" id="filter-tg"
+                    class="flex-1 px-5 py-2.5 rounded-lg text-sm font-semibold bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors">
+                    Telegram
+                  </button>
+                </div>
                 <!-- Daftar user dirender oleh app.js (renderChatUserList) -->
                 <div id="chat-user-list" class="flex-1 overflow-y-auto divide-y divide-slate-100"></div>
               </div>

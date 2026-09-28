@@ -999,3 +999,30 @@ We need to implement a Dynamic Router inside the webhook to map incoming message
 
 3. **Database Chat History Consistency**
    - Ensure that when saving the conversation to the `chat_histories` table, the correct `agent_id` (dynamically found in Step 1) is recorded alongside the user's universal identity (`platform_id`).
+
+# Context
+We are improving the UX of the Chat History view (`#view-chats`). The user wants this view to act like a universal inbox (similar to WhatsApp Web), displaying all users from all platforms by default. 
+To help the admin organize the inbox, we need to add prominent, clearly visible platform-specific filter buttons (WhatsApp and Telegram) right above the user list in the chat interface.
+
+# Tasks
+
+1. **Frontend UI Update (`index.html`)**
+   - Inside the Chat History view (`#view-chats`), locate the left-side panel where the list of users/conversations is displayed.
+   - Right above the user list (and below the "Percakapan" header or search bar), add a container with two LARGE, prominent toggle buttons: `<button id="filter-wa">WhatsApp</button>` and `<button id="filter-tg">Telegram</button>`.
+   - Style these buttons with Tailwind CSS so they are very visible and easy to click. Use larger padding (e.g., `px-4 py-2` or `px-5 py-2.5`), `font-semibold`, and rounded corners (`rounded-lg` or `rounded-full`). 
+   - Apply distinct visual states: 
+     - Active state: Use vibrant brand colors (e.g., WhatsApp green `bg-green-500 text-white`, Telegram blue `bg-blue-500 text-white`).
+     - Inactive state: Use a dimmed/subtle look (e.g., `bg-gray-100 text-gray-500 hover:bg-gray-200`).
+
+2. **Frontend JS Logic (`app.js`)**
+   - Update the state management for the chat list to include a `currentChannelFilter` variable (defaulting to `'all'`).
+   - Add click event listeners to the `#filter-wa` and `#filter-tg` buttons.
+     - When clicking an inactive button, set it to active (apply active CSS classes) and deactivate the other. Update `currentChannelFilter` to `'whatsapp'` or `'telegram'`.
+     - When clicking an already active button, toggle it off (revert to default inactive state) and set `currentChannelFilter` back to `'all'` (Universal mode).
+   - Update the function that renders the user list in the left panel. Before rendering the array of users, apply a `.filter()` based on the `currentChannelFilter`. 
+     - If `'whatsapp'`, only show users where `user.channel === 'whatsapp'`.
+     - If `'telegram'`, only show users where `user.channel === 'telegram'`.
+     - If `'all'`, show everyone.
+
+3. **Backend Verification (Optional but recommended)**
+   - Ensure that the API endpoint fetching the chat users correctly includes the `channel` property for each user in its JSON response so the frontend JS can filter them accurately.
