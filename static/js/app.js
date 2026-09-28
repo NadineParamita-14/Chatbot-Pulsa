@@ -585,28 +585,29 @@ function verifyCurrentOrder() {
 // =====================================================================
 const chatsState = { agentId: null, activeId: null, users: [], isManualMode: false, channelFilter: "all" };
 
-// Tombol filter channel pane kiri chat: aktif = warna brand, nonaktif =
-// abu redup. "all" (universal inbox) = kedua tombol dalam kondisi nonaktif.
+// Tombol filter channel pane kiri chat: Semua (default, abu gelap netral) /
+// WhatsApp (hijau) / Telegram (biru). Nonaktif = abu redup.
 const CHANNEL_FILTER_UI = {
+  all: { btn: "filter-all", active: "bg-gray-800 text-white shadow-sm" },
   whatsapp: { btn: "filter-wa", active: "bg-green-500 text-white shadow-sm", label: "WhatsApp" },
   telegram: { btn: "filter-tg", active: "bg-blue-500 text-white shadow-sm", label: "Telegram" },
   inactive: "bg-gray-100 text-gray-500 hover:bg-gray-200",
 };
 
-/** Cat ulang kedua tombol filter sesuai chatsState.channelFilter. */
+/** Cat ulang ketiga tombol filter sesuai chatsState.channelFilter. */
 function applyChannelFilterUI() {
-  for (const channel of ["whatsapp", "telegram"]) {
+  for (const channel of ["all", "whatsapp", "telegram"]) {
     const ui = CHANNEL_FILTER_UI[channel];
     const active = chatsState.channelFilter === channel;
-    document.getElementById(ui.btn).className = `flex-1 px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
+    document.getElementById(ui.btn).className = `flex-1 px-2 py-2.5 rounded-lg text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors ${
       active ? ui.active : CHANNEL_FILTER_UI.inactive
     }`;
   }
 }
 
-/** Klik filter: aktifkan channel tsb; klik tombol yang sudah aktif = "all". */
-function toggleChannelFilter(channel) {
-  chatsState.channelFilter = chatsState.channelFilter === channel ? "all" : channel;
+/** Klik filter: pilih channel tsb ("all" = universal inbox, tanpa .filter()). */
+function setChannelFilter(channel) {
+  chatsState.channelFilter = channel;
   applyChannelFilterUI();
   renderChatUserList();
 }
@@ -1871,9 +1872,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // klik kartu agent dipasang di renderChatAgentCards karena kartu dinamis.
   document.getElementById("chat-agent-back-btn").addEventListener("click", showChatAgentPicker);
 
-  // Filter channel pane kiri (WhatsApp/Telegram; klik tombol aktif lagi = semua)
-  document.getElementById("filter-wa").addEventListener("click", () => toggleChannelFilter("whatsapp"));
-  document.getElementById("filter-tg").addEventListener("click", () => toggleChannelFilter("telegram"));
+  // Filter channel pane kiri: Semua (default) / WhatsApp / Telegram
+  document.getElementById("filter-all").addEventListener("click", () => setChannelFilter("all"));
+  document.getElementById("filter-wa").addEventListener("click", () => setChannelFilter("whatsapp"));
+  document.getElementById("filter-tg").addEventListener("click", () => setChannelFilter("telegram"));
 
   // Tombol kembali ke daftar kontak (hanya tampil di mobile)
   document.getElementById("chat-back-btn").addEventListener("click", () => {

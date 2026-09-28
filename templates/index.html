@@ -303,14 +303,18 @@
                 <div class="px-4 py-3 border-b border-slate-200">
                   <h3 class="font-semibold text-slate-800">Percakapan</h3>
                 </div>
-                <!-- Filter channel: klik untuk saring, klik lagi untuk semua channel -->
+                <!-- Filter channel: Semua (default) / WhatsApp / Telegram -->
                 <div class="px-4 py-3 border-b border-slate-200 flex items-center gap-2">
+                  <button type="button" id="filter-all"
+                    class="flex-1 px-2 py-2.5 rounded-lg text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors bg-gray-800 text-white shadow-sm">
+                    Semua
+                  </button>
                   <button type="button" id="filter-wa"
-                    class="flex-1 px-5 py-2.5 rounded-lg text-sm font-semibold bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors">
+                    class="flex-1 px-2 py-2.5 rounded-lg text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors bg-gray-100 text-gray-500 hover:bg-gray-200">
                     WhatsApp
                   </button>
                   <button type="button" id="filter-tg"
-                    class="flex-1 px-5 py-2.5 rounded-lg text-sm font-semibold bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors">
+                    class="flex-1 px-2 py-2.5 rounded-lg text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors bg-gray-100 text-gray-500 hover:bg-gray-200">
                     Telegram
                   </button>
                 </div>

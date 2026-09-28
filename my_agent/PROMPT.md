@@ -1026,3 +1026,26 @@ To help the admin organize the inbox, we need to add prominent, clearly visible 
 
 3. **Backend Verification (Optional but recommended)**
    - Ensure that the API endpoint fetching the chat users correctly includes the `channel` property for each user in its JSON response so the frontend JS can filter them accurately.
+
+# Context
+The current Chat History filter implementation incorrectly defaults to filtering only WhatsApp users. The user explicitly wants a Universal inbox by default, displaying both WhatsApp and Telegram chats combined when the page first loads. 
+
+To make the UI/UX intuitive, we need to change the filter into a 3-button group: "Semua" (All), "WhatsApp", and "Telegram", where "Semua" is the default active state.
+
+# Tasks
+
+1. **Frontend UI Update (`index.html`)**
+   - In the left-side panel of `#view-chats`, update the filter button container to include THREE buttons: 
+     - `<button id="filter-all">Semua</button>`
+     - `<button id="filter-wa">WhatsApp</button>`
+     - `<button id="filter-tg">Telegram</button>`
+   - Ensure they fit well visually (e.g., a segmented control style or side-by-side pills).
+
+2. **Frontend JS Logic (`app.js`)**
+   - Set the default state of `currentChannelFilter` to `'all'`.
+   - **Default UI State:** When the chat view is opened, the `#filter-all` button MUST have the active styling (e.g., a neutral dark color like `bg-gray-800 text-white`), while WA and TG buttons are inactive (e.g., `bg-gray-100 text-gray-500`).
+   - **Filter Logic & Event Listeners:**
+     - Click **"Semua"**: Set filter to `'all'`, apply active CSS to "Semua", remove active CSS from WA/TG, and render ALL users regardless of platform.
+     - Click **"WhatsApp"**: Set filter to `'whatsapp'`, apply active CSS to "WhatsApp" (e.g., green), remove active CSS from Semua/TG, and render only users where `channel === 'whatsapp'`.
+     - Click **"Telegram"**: Set filter to `'telegram'`, apply active CSS to "Telegram" (e.g., blue), remove active CSS from Semua/WA, and render only users where `channel === 'telegram'`.
+   - Ensure the `renderChatUsers()` function accurately respects the `'all'` state by bypassing the channel `.filter()` array method when active.
