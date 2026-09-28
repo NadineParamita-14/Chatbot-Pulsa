@@ -6,26 +6,56 @@
   <title>Admin Panel — Bot Pulsa</title>
   <!-- Tailwind CSS via CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Konfigurasi Tailwind: Plus Jakarta Sans (UI) + Playfair Display (aksen serif italic) -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ["Plus Jakarta Sans", "ui-sans-serif", "system-ui", "sans-serif"],
+            serif: ["Playfair Display", "Georgia", "serif"],
+          },
+        },
+      },
+    };
+  </script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@1,400;1,500;1,600&display=swap"
+    rel="stylesheet" />
   <!-- Styling pendukung (animasi modal, scrollbar, dsb) -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
-<body class="bg-slate-50 text-slate-800">
+<body class="bg-white text-gray-900 font-sans">
+
+  <!-- ==========================================================
+       AKSEN LATAR: mesh gradient blur (magenta / pink / oranye / ungu)
+       Fixed di belakang seluruh konten (z negatif), non-interaktif.
+  =========================================================== -->
+  <div aria-hidden="true" class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+    <div class="absolute -top-24 -left-24 w-96 h-96 bg-fuchsia-500 rounded-full blur-3xl opacity-30"></div>
+    <div class="absolute top-1/3 -right-32 w-[28rem] h-[28rem] bg-orange-400 rounded-full blur-3xl opacity-25"></div>
+    <div class="absolute -bottom-32 left-1/4 w-96 h-96 bg-purple-600 rounded-full blur-3xl opacity-25"></div>
+    <div class="absolute top-10 right-1/3 w-72 h-72 bg-pink-500 rounded-full blur-3xl opacity-20"></div>
+  </div>
 
   <!-- ==========================================================
        VIEW: LOGIN
   =========================================================== -->
   <section id="view-login" class="view hidden min-h-screen flex items-center justify-center px-4">
     <div class="w-full max-w-md">
-      <div class="bg-white rounded-2xl shadow-lg p-8">
+      <div class="bg-white/80 backdrop-blur-md rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8">
         <div class="text-center mb-8">
-          <div class="mx-auto w-14 h-14 rounded-full bg-teal-500 flex items-center justify-center mb-4">
+          <div class="mx-auto w-14 h-14 rounded-full bg-gray-900 flex items-center justify-center mb-4">
             <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round"
                 d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
             </svg>
           </div>
-          <h1 class="text-2xl font-bold text-slate-900">Admin Panel</h1>
-          <p class="text-sm text-slate-500 mt-1">Sistem penjualan produk digital (Pulsa)</p>
+          <h1 class="text-3xl font-extrabold tracking-tighter text-black">Admin Panel</h1>
+          <p class="font-serif italic text-gray-500 mt-1">Sistem penjualan produk digital (Pulsa)</p>
         </div>
 
         <p id="login-error" class="hidden mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2"></p>
@@ -34,18 +64,18 @@
           <div>
             <label for="login-username" class="block text-sm font-medium text-slate-700 mb-1">Username</label>
             <input id="login-username" type="text" autocomplete="username" required
-              class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+              class="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-gray-900"
               placeholder="masukkan username" />
           </div>
           <div>
             <label for="login-password" class="block text-sm font-medium text-slate-700 mb-1">Password</label>
             <input id="login-password" type="password" autocomplete="current-password" required
-              class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+              class="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-gray-900"
               placeholder="••••••••" />
           </div>
           <button id="login-submit" type="submit"
-            class="w-full bg-teal-500 hover:bg-teal-600 text-white font-semibold rounded-lg py-2.5 text-sm shadow-sm hover:shadow-md transition-all disabled:opacity-60 disabled:cursor-not-allowed">
-            Masuk
+            class="w-full inline-flex items-center justify-center gap-2 rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all disabled:opacity-60 disabled:cursor-not-allowed">
+            Masuk <span aria-hidden="true">→</span>
           </button>
         </form>
       </div>
@@ -61,42 +91,42 @@
     <!-- Overlay mobile untuk sidebar -->
     <div id="sidebar-overlay" class="hidden fixed inset-0 bg-slate-900/50 z-20 md:hidden"></div>
 
-    <!-- ===== SIDEBAR ===== -->
+    <!-- ===== SIDEBAR: kaca putih (glassmorphism) di atas mesh gradient ===== -->
     <aside id="sidebar"
-      class="fixed inset-y-0 left-0 z-30 w-64 bg-gradient-to-b from-cyan-500 to-teal-500 text-white -translate-x-full md:translate-x-0 transition-transform duration-200 flex flex-col">
-      <div class="h-16 flex items-center gap-3 px-6 border-b border-white/20">
-        <div class="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
-          <svg class="w-4.5 h-4.5 text-white" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      class="fixed inset-y-0 left-0 z-30 w-64 bg-white/70 backdrop-blur-md text-gray-900 -translate-x-full md:translate-x-0 transition-transform duration-200 flex flex-col">
+      <div class="h-16 flex items-center gap-3 px-6 border-b border-gray-100">
+        <div class="w-8 h-8 rounded-full bg-gray-900 flex items-center justify-center">
+          <svg class="w-4 h-4 text-white" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
           </svg>
         </div>
-        <span class="text-white font-bold tracking-wide">BOT PULSA</span>
+        <span class="font-extrabold tracking-tighter text-black">BOT PULSA</span>
       </div>
 
       <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         <a href="#dashboard" data-route="dashboard"
-           class="nav-link group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/10 hover:text-white transition-colors">
+           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-500 hover:text-black hover:bg-gray-100/70 transition-colors">
           <svg class="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
           </svg>
           Dashboard
         </a>
         <a href="#products" data-route="products"
-           class="nav-link group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/10 hover:text-white transition-colors">
+           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-500 hover:text-black hover:bg-gray-100/70 transition-colors">
           <svg class="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
           </svg>
           Produk
         </a>
         <a href="#orders" data-route="orders"
-           class="nav-link group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/10 hover:text-white transition-colors">
+           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-500 hover:text-black hover:bg-gray-100/70 transition-colors">
           <svg class="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
           </svg>
           Pesanan
         </a>
         <a href="#chats" data-route="chats"
-           class="nav-link group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/10 hover:text-white transition-colors">
+           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-500 hover:text-black hover:bg-gray-100/70 transition-colors">
           <svg class="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4-.8l-3.5 1.5 1.2-3.2C4.2 15.9 3 14.1 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
           </svg>
@@ -104,7 +134,7 @@
         </a>
 
         <a href="#waha" data-route="waha"
-           class="nav-link group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/10 hover:text-white transition-colors">
+           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-500 hover:text-black hover:bg-gray-100/70 transition-colors">
           <svg class="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/>
           </svg>
@@ -113,21 +143,21 @@
 
         <!-- Dua link di bawah ini hanya tampil untuk superadmin (dikontrol app.js) -->
         <a href="#knowledge-base" data-route="knowledge-base"
-           class="nav-link group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/10 hover:text-white transition-colors">
+           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-500 hover:text-black hover:bg-gray-100/70 transition-colors">
           <svg class="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
           </svg>
           Knowledge Base
         </a>
         <a href="#agent-config" data-route="agent-config" data-superadmin-only
-           class="nav-link group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/10 hover:text-white transition-colors">
+           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-500 hover:text-black hover:bg-gray-100/70 transition-colors">
           <svg class="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
           </svg>
           Agent Config
         </a>
         <a href="#admin-management" data-route="admin-management" data-superadmin-only
-           class="nav-link group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/10 hover:text-white transition-colors">
+           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-500 hover:text-black hover:bg-gray-100/70 transition-colors">
           <svg class="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
           </svg>
@@ -135,7 +165,7 @@
         </a>
       </nav>
 
-      <div class="px-3 py-4 border-t border-white/20 text-xs text-white/70">
+      <div class="px-3 py-4 border-t border-gray-100 text-xs text-gray-400">
         v1.0.0 — Admin Panel
       </div>
     </aside>
@@ -143,23 +173,23 @@
     <!-- ===== AREA KANAN: TOPBAR + MAIN ===== -->
     <div class="md:pl-64 flex flex-col min-h-screen">
 
-      <!-- TOPBAR -->
-      <header class="h-16 bg-white/90 backdrop-blur border-b border-slate-100 shadow-sm flex items-center justify-between px-4 md:px-6 sticky top-0 z-10">
+      <!-- TOPBAR: kaca putih menyatu dengan latar mesh gradient -->
+      <header class="h-16 bg-white/70 backdrop-blur-md border-b border-gray-100 flex items-center justify-between px-4 md:px-6 sticky top-0 z-10">
         <div class="flex items-center gap-3">
-          <button id="sidebar-toggle" class="md:hidden p-2 rounded-lg hover:bg-slate-100" aria-label="Buka menu">
-            <svg class="w-6 h-6 text-slate-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <button id="sidebar-toggle" class="md:hidden p-2 rounded-full hover:bg-gray-100" aria-label="Buka menu">
+            <svg class="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
             </svg>
           </button>
-          <h2 id="page-title" class="text-lg font-bold text-slate-900">Dashboard</h2>
+          <h2 id="page-title" class="text-lg font-extrabold tracking-tighter text-black">Dashboard</h2>
         </div>
 
         <div class="flex items-center gap-3">
           <div class="text-right hidden sm:block">
-            <p id="topbar-user-name" class="text-sm font-semibold text-slate-800">—</p>
-            <p id="topbar-user-role" class="text-xs text-slate-500">—</p>
+            <p id="topbar-user-name" class="text-sm font-semibold text-gray-900">—</p>
+            <p id="topbar-user-role" class="text-xs font-serif italic text-gray-500">—</p>
           </div>
-          <div class="w-9 h-9 rounded-full bg-teal-500 text-white flex items-center justify-center font-bold text-sm">
+          <div class="w-9 h-9 rounded-full bg-gray-900 text-white flex items-center justify-center font-bold text-sm">
             <span id="topbar-avatar">A</span>
           </div>
           <button id="logout-btn" title="Keluar"
@@ -176,11 +206,11 @@
 
         <!-- VIEW: DASHBOARD -->
         <section id="view-dashboard" class="view hidden space-y-6">
-          <div id="dashboard-stats" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4"></div>
+          <div id="dashboard-stats" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6"></div>
 
-          <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
-            <div class="px-5 py-4 border-b border-slate-200">
-              <h3 class="font-semibold text-slate-800">Pesanan Terbaru</h3>
+          <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+            <div class="px-8 py-6 border-b border-gray-100">
+              <h3 class="font-extrabold tracking-tighter text-black">Pesanan Terbaru</h3>
             </div>
             <div class="overflow-x-auto">
               <table class="w-full text-sm text-left">
@@ -201,15 +231,15 @@
 
         <!-- VIEW: PRODUCTS -->
         <section id="view-products" class="view hidden">
-          <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
-            <div class="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
-              <h3 class="font-semibold text-slate-800">Daftar Produk</h3>
+          <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+            <div class="px-8 py-6 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
+              <h3 class="font-extrabold tracking-tighter text-black">Daftar Produk</h3>
               <button id="btn-add-product"
-                class="hidden items-center gap-2 bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow-sm hover:shadow-md transition-all">
+                class="hidden items-center gap-2 rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                 </svg>
-                Tambah Produk
+                Tambah Produk <span aria-hidden="true">→</span>
               </button>
 
             </div>
@@ -234,19 +264,19 @@
 
         <!-- VIEW: ORDERS -->
         <section id="view-orders" class="view hidden">
-          <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
-            <div class="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
-              <h3 class="font-semibold text-slate-800">Daftar Pesanan</h3>
+          <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+            <div class="px-8 py-6 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
+              <h3 class="font-extrabold tracking-tighter text-black">Daftar Pesanan</h3>
               <div class="flex flex-wrap items-center gap-2">
                 <div class="relative">
                   <svg class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                   </svg>
                   <input id="order-search" type="text" placeholder="Cari nomor invoice..."
-                    class="pl-9 pr-3 py-2 w-56 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                    class="pl-9 pr-3 py-2 w-56 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
                 </div>
                 <select id="order-status-filter"
-                  class="rounded-lg border border-slate-300 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500">
+                  class="rounded-xl border border-slate-300 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900">
                   <option value="">Semua Status</option>
                   <option value="pending">Pending</option>
                   <option value="success">Success</option>
@@ -272,7 +302,7 @@
                 <tbody id="orders-tbody" class="divide-y divide-slate-100"></tbody>
               </table>
             </div>
-            <div id="orders-pagination" class="px-5 py-3 border-t border-slate-200 flex items-center justify-between text-sm"></div>
+            <div id="orders-pagination" class="px-8 py-3 border-t border-gray-100 flex items-center justify-between text-sm"></div>
           </div>
         </section>
 
@@ -281,18 +311,18 @@
 
           <!-- TAHAP 1: pilih agent (default) — kartu dirender app.js dari /api/agents -->
           <div id="chat-agent-view">
-            <h3 class="font-semibold text-slate-800 mb-1">Pilih Agent</h3>
-            <p class="text-sm text-slate-500 mb-5">Klik agent untuk memantau percakapan penggunanya.</p>
+            <h3 class="font-extrabold tracking-tighter text-black mb-1">Pilih Agent</h3>
+            <p class="text-sm font-serif italic text-gray-500 mb-5">Klik agent untuk memantau percakapan penggunanya.</p>
             <div id="chat-agents-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5"></div>
           </div>
 
           <!-- TAHAP 2: antarmuka chat (WhatsApp Web) untuk agent terpilih -->
           <div id="chat-room-view" class="hidden">
             <button type="button" id="chat-agent-back-btn"
-              class="inline-flex items-center gap-2 text-sm font-semibold text-teal-600 hover:text-teal-700 mb-4">
+              class="inline-flex items-center gap-2 text-sm font-semibold text-gray-900 hover:opacity-60 transition-opacity mb-4">
               ⬅ Kembali ke Daftar Agent
             </button>
-            <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
+            <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
             <!-- Grid: 1 kolom (mobile) / 3 kolom (md) / 4 kolom (lg).
                  Tinggi mengikuti viewport dikurangi topbar + padding main. -->
             <div id="chat-layout" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 h-[calc(100vh-12rem)] min-h-[480px]">
@@ -301,20 +331,20 @@
               <div id="chat-list-pane"
                 class="md:col-span-1 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col min-h-0">
                 <div class="px-4 py-3 border-b border-slate-200">
-                  <h3 class="font-semibold text-slate-800">Percakapan</h3>
+                  <h3 class="font-extrabold tracking-tighter text-black">Percakapan</h3>
                 </div>
                 <!-- Filter channel: Semua (default) / WhatsApp / Telegram -->
                 <div class="px-4 py-3 border-b border-slate-200 flex items-center gap-2">
                   <button type="button" id="filter-all"
-                    class="flex-1 px-2 py-2.5 rounded-lg text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors bg-gray-800 text-white shadow-sm">
+                    class="flex-1 px-2 py-2.5 rounded-full text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors bg-gray-900 text-white shadow-sm">
                     Semua
                   </button>
                   <button type="button" id="filter-wa"
-                    class="flex-1 px-2 py-2.5 rounded-lg text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors bg-gray-100 text-gray-500 hover:bg-gray-200">
+                    class="flex-1 px-2 py-2.5 rounded-full text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors bg-gray-100 text-gray-500 hover:bg-gray-200">
                     WhatsApp
                   </button>
                   <button type="button" id="filter-tg"
-                    class="flex-1 px-2 py-2.5 rounded-lg text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors bg-gray-100 text-gray-500 hover:bg-gray-200">
+                    class="flex-1 px-2 py-2.5 rounded-full text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors bg-gray-100 text-gray-500 hover:bg-gray-200">
                     Telegram
                   </button>
                 </div>
@@ -335,7 +365,7 @@
                       <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
                     </svg>
                   </button>
-                  <div class="w-9 h-9 rounded-full bg-teal-500 text-white flex items-center justify-center font-bold text-sm flex-shrink-0">
+                  <div class="w-9 h-9 rounded-full bg-gray-900 text-white flex items-center justify-center font-bold text-sm flex-shrink-0">
                     <span id="chat-header-avatar">?</span>
                   </div>
                   <div class="min-w-0">
@@ -348,7 +378,7 @@
                     <span id="chat-manual-label" class="text-xs font-medium text-slate-500">Manual Mode</span>
                     <span class="relative inline-block">
                       <input id="chat-manual-toggle" type="checkbox" class="peer sr-only" />
-                      <span class="block w-11 h-6 bg-slate-300 peer-checked:bg-teal-500 rounded-full transition-colors duration-200"></span>
+                      <span class="block w-11 h-6 bg-slate-300 peer-checked:bg-gray-900 rounded-full transition-colors duration-200"></span>
                       <span class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 peer-checked:translate-x-5"></span>
                     </span>
                   </label>
@@ -372,9 +402,9 @@
                 <div id="chat-input-area" class="border-t border-slate-200 bg-white p-3 flex items-center gap-2">
                   <input id="chat-input" type="text" disabled
                     placeholder="AI is currently handling this chat. Turn on Manual Mode to reply."
-                    class="flex-1 rounded-full border border-slate-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed" />
+                    class="flex-1 rounded-full border border-slate-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed" />
                   <button id="chat-send-btn" disabled title="Kirim"
-                    class="w-10 h-10 rounded-full bg-teal-500 hover:bg-teal-600 text-white flex items-center justify-center transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-teal-500 flex-shrink-0">
+                    class="w-10 h-10 rounded-full bg-gray-900 hover:bg-gray-700 text-white flex items-center justify-center transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-gray-900 flex-shrink-0">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/>
                     </svg>
@@ -392,10 +422,10 @@
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
             <!-- ===== KOLOM KIRI: daftar dokumen ===== -->
-            <div id="kb-list-col" class="bg-white rounded-2xl shadow-sm overflow-hidden">
-              <div class="px-5 py-4 border-b border-slate-200">
-                <h3 class="font-semibold text-slate-800">Dokumen Terunggah</h3>
-                <p class="text-xs text-slate-500 mt-0.5">Sumber pengetahuan (RAG) untuk seluruh bot.</p>
+            <div id="kb-list-col" class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+              <div class="px-8 py-6 border-b border-gray-100">
+                <h3 class="font-extrabold tracking-tighter text-black">Dokumen Terunggah</h3>
+                <p class="text-xs font-serif italic text-gray-500 mt-0.5">Sumber pengetahuan (RAG) untuk seluruh bot.</p>
               </div>
               <div class="overflow-x-auto">
                 <table class="w-full text-sm text-left">
@@ -413,15 +443,15 @@
             </div>
 
             <!-- ===== KOLOM KANAN: upload dokumen (khusus superadmin) ===== -->
-            <div id="kb-upload-col" data-superadmin-only class="bg-white rounded-2xl shadow-sm overflow-hidden">
-              <div class="px-5 py-4 border-b border-slate-200">
-                <h3 class="font-semibold text-slate-800">Unggah Dokumen Baru</h3>
-                <p class="text-xs text-slate-500 mt-0.5">PDF akan otomatis diekstrak, dipecah jadi chunk, lalu di-embedding.</p>
+            <div id="kb-upload-col" data-superadmin-only class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+              <div class="px-8 py-6 border-b border-gray-100">
+                <h3 class="font-extrabold tracking-tighter text-black">Unggah Dokumen Baru</h3>
+                <p class="text-xs font-serif italic text-gray-500 mt-0.5">PDF akan otomatis diekstrak, dipecah jadi chunk, lalu di-embedding.</p>
               </div>
               <form id="kb-upload-form" class="p-5 space-y-4">
                 <!-- Dropzone bergaya dashed: label membungkus input agar klik di mana pun membuka dialog file -->
                 <label for="kb-file-input"
-                  class="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-slate-300 rounded-xl px-6 py-10 text-center cursor-pointer hover:border-teal-400 hover:bg-teal-50/40 transition-colors">
+                  class="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-slate-300 rounded-xl px-6 py-10 text-center cursor-pointer hover:border-gray-900 hover:bg-gray-50 transition-colors">
                   <svg class="w-10 h-10 text-slate-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z"/>
                   </svg>
@@ -430,15 +460,15 @@
                   <input id="kb-file-input" type="file" accept=".pdf,application/pdf" class="sr-only" />
                 </label>
                 <button id="kb-upload-btn" type="submit"
-                  class="w-full flex items-center justify-center gap-2 bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold px-4 py-2.5 rounded-lg shadow-sm hover:shadow-md transition-all disabled:opacity-60 disabled:cursor-not-allowed">
+                  class="w-full inline-flex items-center justify-center gap-2 rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all disabled:opacity-60 disabled:cursor-not-allowed">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V6m0 0l-4 4m4-4l4 4M4 20h16"/>
                   </svg>
-                  Upload File
+                  Upload File <span aria-hidden="true">→</span>
                 </button>
                 <!-- Loading state: ditampilkan saat proses ekstraksi & embedding (beberapa detik) -->
                 <div id="kb-upload-loading" class="hidden items-center justify-center gap-3 text-sm text-slate-500 py-1">
-                  <svg class="animate-spin h-5 w-5 text-teal-500" viewBox="0 0 24 24" fill="none">
+                  <svg class="animate-spin h-5 w-5 text-gray-900" viewBox="0 0 24 24" fill="none">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
                   </svg>
@@ -455,15 +485,15 @@
           <div id="agent-list-view">
             <div class="flex flex-wrap items-start justify-between gap-3 mb-5">
               <div>
-                <h3 class="font-semibold text-slate-800 mb-1">Pilih Agent</h3>
-                <p class="text-sm text-slate-500">Klik kartu agent untuk membuka konfigurasinya.</p>
+                <h3 class="font-extrabold tracking-tighter text-black mb-1">Pilih Agent</h3>
+                <p class="text-sm font-serif italic text-gray-500">Klik kartu agent untuk membuka konfigurasinya.</p>
               </div>
               <button id="btn-add-agent" type="button"
-                class="flex items-center gap-2 bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow-sm hover:shadow-md transition-all">
+                class="flex items-center gap-2 rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                 </svg>
-                Tambah Agent
+                Tambah Agent <span aria-hidden="true">→</span>
               </button>
             </div>
             <!-- Grid kartu diisi oleh app.js (renderAgentCards) -->
@@ -473,7 +503,7 @@
           <!-- VIEW 2: form konfigurasi agent terpilih -->
           <div id="agent-form-view" class="hidden">
             <button type="button" id="agent-back-btn"
-              class="inline-flex items-center gap-2 text-sm font-semibold text-teal-600 hover:text-teal-700 mb-4">
+              class="inline-flex items-center gap-2 text-sm font-semibold text-gray-900 hover:opacity-60 transition-opacity mb-4">
               ⬅ Kembali
             </button>
             <div id="agent-configs-container" class="w-full"></div>
@@ -486,18 +516,18 @@
 
         <!-- VIEW: WHATSAPP SESSION — monitoring sesi WAHA (kartu dirender app.js) -->
         <section id="view-waha" class="view hidden">
-          <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
-            <div class="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+          <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+            <div class="px-8 py-6 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 class="font-semibold text-slate-800">Sesi WhatsApp (WAHA)</h3>
-                <p class="text-xs text-slate-500 mt-0.5">Status koneksi WhatsApp bot — diperbarui otomatis tiap 20 detik.</p>
+                <h3 class="font-extrabold tracking-tighter text-black">Sesi WhatsApp (WAHA)</h3>
+                <p class="text-xs font-serif italic text-gray-500 mt-0.5">Status koneksi WhatsApp bot — diperbarui otomatis tiap 20 detik.</p>
               </div>
               <button id="btn-refresh-waha"
-                class="flex items-center gap-2 bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow-sm hover:shadow-md transition-all">
+                class="flex items-center gap-2 rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992V4.356m0 4.992l-3.181-3.183a8.25 8.25 0 00-13.803 3.7M3.985 14.652H8.977m-4.992 0v4.992m0-4.992l3.181 3.183a8.25 8.25 0 0013.803-3.7"/>
                 </svg>
-                Refresh
+                Refresh <span aria-hidden="true">→</span>
               </button>
             </div>
             <!-- Kartu sesi diisi oleh app.js (fetchWahaSessions) -->
@@ -507,15 +537,15 @@
 
         <!-- VIEW: ADMIN MANAGEMENT (superadmin) -->
         <section id="view-admins" class="view hidden">
-          <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
-            <div class="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
-              <h3 class="font-semibold text-slate-800">Daftar Admin</h3>
+          <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+            <div class="px-8 py-6 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
+              <h3 class="font-extrabold tracking-tighter text-black">Daftar Admin</h3>
               <button id="btn-add-admin"
-                class="flex items-center gap-2 bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow-sm hover:shadow-md transition-all">
+                class="flex items-center gap-2 rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                 </svg>
-                Tambah Admin
+                Tambah Admin <span aria-hidden="true">→</span>
               </button>
             </div>
             <div class="overflow-x-auto">
@@ -545,39 +575,39 @@
   =========================================================== -->
   <div id="modal-product" class="hidden fixed inset-0 z-40 flex items-center justify-center px-4">
     <div class="modal-overlay absolute inset-0 bg-slate-900/50" data-close-modal></div>
-    <div class="modal-card relative bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+    <div class="modal-card relative bg-white rounded-3xl shadow-[0_24px_60px_rgb(0,0,0,0.12)] w-full max-w-lg p-6">
       <h3 id="product-modal-title" class="text-lg font-bold text-slate-900 mb-5">Tambah Produk</h3>
       <form id="product-form" class="space-y-4">
         <input type="hidden" id="product-id" />
         <div>
           <label class="block text-sm font-medium text-slate-700 mb-1">Nama Produk <span class="text-red-500">*</span></label>
           <input id="product-name" type="text" required maxlength="150"
-            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
             placeholder="cth: Pulsa Telkomsel 25.000" />
         </div>
         <div class="grid grid-cols-2 gap-4">
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-1">Stok (Qty) <span class="text-red-500">*</span></label>
             <input id="product-qty" type="number" min="0" step="1" required
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-1">Harga (Rp) <span class="text-red-500">*</span></label>
             <input id="product-price" type="number" min="0" step="0.01" required
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
           </div>
         </div>
         <div>
           <label class="block text-sm font-medium text-slate-700 mb-1">Deskripsi</label>
           <textarea id="product-description" rows="3"
-            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
             placeholder="opsional"></textarea>
         </div>
         <div class="flex justify-end gap-3 pt-2">
           <button type="button" data-close-modal
-            class="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 hover:bg-slate-50">Batal</button>
+            class="px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full border border-gray-300 text-gray-500 hover:bg-gray-100 transition-all">Batal</button>
           <button type="submit"
-            class="px-4 py-2 text-sm font-semibold rounded-lg bg-teal-500 hover:bg-teal-600 text-white shadow-sm hover:shadow-md transition-all">Simpan</button>
+            class="px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white transition-all">Simpan <span aria-hidden="true">→</span></button>
         </div>
       </form>
     </div>
@@ -588,15 +618,15 @@
   =========================================================== -->
   <div id="modal-order" class="hidden fixed inset-0 z-40 flex items-center justify-center px-4">
     <div class="modal-overlay absolute inset-0 bg-slate-900/50" data-close-modal></div>
-    <div class="modal-card relative bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
+    <div class="modal-card relative bg-white rounded-3xl shadow-[0_24px_60px_rgb(0,0,0,0.12)] w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
       <h3 class="text-lg font-bold text-slate-900 mb-5">Detail Pesanan</h3>
       <div id="order-detail-body"></div>
       <div class="flex justify-end gap-3 mt-6">
         <button type="button" data-close-modal
-          class="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 hover:bg-slate-50">Tutup</button>
+          class="px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full border border-gray-300 text-gray-500 hover:bg-gray-100 transition-all">Tutup</button>
         <button id="btn-verify-payment"
-          class="hidden px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm hover:shadow-md transition-all">
-          Verifikasi Pembayaran
+          class="hidden px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white transition-all">
+          Verifikasi Pembayaran <span aria-hidden="true">→</span>
         </button>
       </div>
     </div>
@@ -607,7 +637,7 @@
   =========================================================== -->
   <div id="modal-admin" class="hidden fixed inset-0 z-40 flex items-center justify-center px-4">
     <div class="modal-overlay absolute inset-0 bg-slate-900/50" data-close-modal></div>
-    <div class="modal-card relative bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+    <div class="modal-card relative bg-white rounded-3xl shadow-[0_24px_60px_rgb(0,0,0,0.12)] w-full max-w-lg p-6">
       <h3 id="admin-modal-title" class="text-lg font-bold text-slate-900 mb-5">Tambah Admin</h3>
       <form id="admin-form" class="space-y-4">
         <input type="hidden" id="admin-id" />
@@ -615,12 +645,12 @@
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-1">Username <span class="text-red-500">*</span></label>
             <input id="admin-username" type="text" required maxlength="50"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-1">Nama Lengkap <span class="text-red-500">*</span></label>
             <input id="admin-full-name" type="text" required maxlength="100"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
           </div>
         </div>
         <div>
@@ -628,28 +658,28 @@
             Password <span id="admin-password-hint" class="text-xs text-slate-400"></span>
           </label>
           <input id="admin-password" type="password" minlength="6"
-            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
             placeholder="minimal 6 karakter" />
         </div>
         <div class="grid grid-cols-2 gap-4 items-end">
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-1">Role</label>
             <select id="admin-role"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
               <option value="admin">Admin</option>
               <option value="superadmin">Superadmin</option>
             </select>
           </div>
           <label class="flex items-center gap-2 text-sm text-slate-700 pb-2">
-            <input id="admin-is-active" type="checkbox" checked class="w-4 h-4 rounded border-slate-300 text-teal-600" />
+            <input id="admin-is-active" type="checkbox" checked class="w-4 h-4 rounded border-slate-300 text-gray-900" />
             Akun Aktif
           </label>
         </div>
         <div class="flex justify-end gap-3 pt-2">
           <button type="button" data-close-modal
-            class="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 hover:bg-slate-50">Batal</button>
+            class="px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full border border-gray-300 text-gray-500 hover:bg-gray-100 transition-all">Batal</button>
           <button type="submit"
-            class="px-4 py-2 text-sm font-semibold rounded-lg bg-teal-500 hover:bg-teal-600 text-white shadow-sm hover:shadow-md transition-all">Simpan</button>
+            class="px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white transition-all">Simpan <span aria-hidden="true">→</span></button>
         </div>
       </form>
     </div>
@@ -660,35 +690,35 @@
   =========================================================== -->
   <div id="modal-agent" class="hidden fixed inset-0 z-40 flex items-center justify-center px-4">
     <div class="modal-overlay absolute inset-0 bg-slate-900/50" data-close-modal></div>
-    <div class="modal-card relative bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+    <div class="modal-card relative bg-white rounded-3xl shadow-[0_24px_60px_rgb(0,0,0,0.12)] w-full max-w-lg p-6">
       <h3 class="text-lg font-bold text-slate-900 mb-5">Tambah Agent Baru</h3>
       <form id="agent-create-form" class="space-y-4">
         <div>
           <label for="new-agent-id" class="block text-sm font-medium text-slate-700 mb-1">Agent ID <span class="text-red-500">*</span></label>
           <input id="new-agent-id" type="text" required maxlength="50" pattern="[a-z0-9_]+"
             title="Hanya huruf kecil, angka, dan underscore (tanpa spasi)"
-            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-500"
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900"
             placeholder="cth: pulsa_agent" />
           <p class="text-xs text-slate-400 mt-1">Huruf kecil, angka, dan underscore — tanpa spasi.</p>
         </div>
         <div>
           <label for="new-agent-name" class="block text-sm font-medium text-slate-700 mb-1">Nama Tampilan <span class="text-red-500">*</span></label>
           <input id="new-agent-name" type="text" required maxlength="100"
-            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
             placeholder="cth: Bot Retensi" />
         </div>
         <div>
           <label for="new-agent-token" class="block text-sm font-medium text-slate-700 mb-1">Telegram Token</label>
           <input id="new-agent-token" type="password"
-            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-500"
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900"
             placeholder="kosongkan bila belum ada — bisa diisi nanti" />
           <p class="text-xs text-slate-400 mt-1">Opsional: token bot Telegram dari BotFather.</p>
         </div>
         <div class="flex justify-end gap-3 pt-2">
           <button type="button" data-close-modal
-            class="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 hover:bg-slate-50">Batal</button>
+            class="px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full border border-gray-300 text-gray-500 hover:bg-gray-100 transition-all">Batal</button>
           <button type="submit"
-            class="px-4 py-2 text-sm font-semibold rounded-lg bg-teal-500 hover:bg-teal-600 text-white shadow-sm hover:shadow-md transition-all">Simpan</button>
+            class="px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white transition-all">Simpan <span aria-hidden="true">→</span></button>
         </div>
       </form>
     </div>
@@ -699,7 +729,7 @@
   =========================================================== -->
   <div id="modal-confirm" class="hidden fixed inset-0 z-40 flex items-center justify-center px-4">
     <div class="modal-overlay absolute inset-0 bg-slate-900/50" data-close-modal></div>
-    <div class="modal-card relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+    <div class="modal-card relative bg-white rounded-3xl shadow-[0_24px_60px_rgb(0,0,0,0.12)] w-full max-w-md p-6">
       <div class="flex items-start gap-4">
         <div id="confirm-icon" class="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center flex-shrink-0">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -713,9 +743,9 @@
       </div>
       <div class="flex justify-end gap-3 mt-6">
         <button type="button" data-close-modal
-          class="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 hover:bg-slate-50">Batal</button>
+          class="px-4 py-2 text-sm font-medium rounded-xl border border-slate-300 hover:bg-slate-50">Batal</button>
         <button id="confirm-ok" type="button"
-          class="px-4 py-2 text-sm font-semibold rounded-lg bg-red-600 hover:bg-red-700 text-white">Ya, Lanjutkan</button>
+          class="px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full bg-red-600 hover:bg-red-700 text-white transition-all">Ya, Lanjutkan</button>
       </div>
     </div>
   </div>
@@ -727,7 +757,7 @@
   =========================================================== -->
   <div id="modal-waha-qr" class="hidden fixed inset-0 z-40 flex items-center justify-center px-4">
     <div class="modal-overlay absolute inset-0 bg-slate-900/50" data-close-modal></div>
-    <div class="modal-card relative bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
+    <div class="modal-card relative bg-white rounded-3xl shadow-[0_24px_60px_rgb(0,0,0,0.12)] w-full max-w-sm p-6 text-center">
       <h3 class="text-lg font-bold text-slate-900">Scan QR WhatsApp</h3>
       <p class="text-xs text-slate-500 mt-1 mb-4">
         Buka WhatsApp &rarr; <span class="font-medium">Perangkat Tertaut</span> &rarr; Tautkan Perangkat
@@ -735,7 +765,7 @@
 
       <!-- Kotak QR: spinner saat menunggu, gambar QR saat tersedia -->
       <div class="mx-auto w-56 h-56 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center overflow-hidden">
-        <svg id="waha-qr-spinner" class="animate-spin w-8 h-8 text-teal-500" fill="none" viewBox="0 0 24 24">
+        <svg id="waha-qr-spinner" class="animate-spin w-8 h-8 text-gray-900" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
@@ -746,7 +776,7 @@
 
       <div class="flex justify-center gap-3 mt-5">
         <button type="button" data-close-modal
-          class="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 hover:bg-slate-50">Tutup</button>
+          class="px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full border border-gray-300 text-gray-500 hover:bg-gray-100 transition-all">Tutup</button>
       </div>
     </div>
   </div>

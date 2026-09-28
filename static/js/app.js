@@ -147,12 +147,12 @@ function openConfirm({ title, message, confirmText = "Ya, Lanjutkan", danger = t
 
   const okBtn = document.getElementById("confirm-ok");
   okBtn.textContent = confirmText;
-  // Merah untuk aksi berisiko (hapus), teal untuk aksi proses (verifikasi)
-  okBtn.className = `px-4 py-2 text-sm font-semibold rounded-lg text-white ${
-    danger ? "bg-red-600 hover:bg-red-700" : "bg-teal-500 hover:bg-teal-600"
+  // Merah untuk aksi berisiko (hapus), hitam pill untuk aksi proses (verifikasi)
+  okBtn.className = `px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full text-white transition-all ${
+    danger ? "bg-red-600 hover:bg-red-700" : "bg-gray-900 hover:bg-gray-700"
   }`;
   document.getElementById("confirm-icon").className = `w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
-    danger ? "bg-red-100 text-red-600" : "bg-teal-100 text-teal-600"
+    danger ? "bg-red-100 text-red-600" : "bg-gray-100 text-gray-900"
   }`;
 
   confirmAction = onConfirm;
@@ -193,9 +193,9 @@ function renderPagination(container, meta, onPage) {
     <span class="text-slate-500">Halaman ${meta.page} dari ${meta.total_pages} — total ${meta.total} data</span>
     <div class="flex gap-2">
       <button data-page="${meta.page - 1}" ${meta.page <= 1 ? "disabled" : ""}
-        class="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">Sebelumnya</button>
+        class="px-4 py-1.5 rounded-full border border-gray-300 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">Sebelumnya</button>
       <button data-page="${meta.page + 1}" ${meta.page >= meta.total_pages ? "disabled" : ""}
-        class="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">Berikutnya</button>
+        class="px-4 py-1.5 rounded-full border border-gray-300 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">Berikutnya</button>
     </div>`;
   container.querySelectorAll("button[data-page]").forEach((btn) => {
     btn.addEventListener("click", () => onPage(parseInt(btn.dataset.page, 10)));
@@ -273,7 +273,7 @@ async function renderDashboard() {
       icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>`,
     },
     {
-      label: "Total Produk", value: s.total_products, color: "bg-teal-500",
+      label: "Total Produk", value: s.total_products, color: "bg-fuchsia-500",
       trend: "↑ 5%", trendClass: "text-emerald-500",
       icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>`,
     },
@@ -293,7 +293,7 @@ async function renderDashboard() {
       icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>`,
     },
     {
-      label: "Total Pelanggan", value: s.total_customers, color: "bg-cyan-500",
+      label: "Total Pelanggan", value: s.total_customers, color: "bg-orange-400",
       trend: "↑ 7%", trendClass: "text-emerald-500",
       icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"/>`,
     },
@@ -307,11 +307,11 @@ async function renderDashboard() {
   statsEl.innerHTML = cards
     .map(
       (c) => `
-      <div class="relative overflow-hidden bg-white rounded-2xl shadow-sm p-5 flex items-center gap-4">
+      <div class="relative overflow-hidden bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 flex items-center gap-4">
         <div class="w-2 self-stretch rounded-full ${c.color}"></div>
         <div class="min-w-0">
           <p class="text-xs font-medium uppercase tracking-wide text-slate-500">${esc(c.label)}</p>
-          <p class="text-2xl font-bold text-slate-900 mt-0.5">${esc(c.value)}</p>
+          <p class="text-3xl font-extrabold tracking-tighter text-black mt-0.5">${esc(c.value)}</p>
           <p class="mt-1 text-sm">
             <span class="${c.trendClass} font-medium">${c.trend}</span>
             <span class="text-slate-400">dari bulan lalu</span>
@@ -368,7 +368,7 @@ async function renderProducts() {
           ${
             isSuper
               ? `
-          <button data-action="edit" data-id="${p.id}" class="text-teal-600 hover:text-teal-700 font-medium mr-3">Edit</button>
+          <button data-action="edit" data-id="${p.id}" class="text-gray-900 hover:opacity-60 font-medium mr-3">Edit</button>
           <button data-action="delete" data-id="${p.id}" class="text-red-600 hover:text-red-800 font-medium">Hapus</button>`
               : `<span class="text-xs text-slate-400">read-only</span>`
           }
@@ -476,7 +476,7 @@ async function renderOrders(page = 1) {
         <td class="px-5 py-3 font-semibold">${formatIDR(o.total_amount)}</td>
         <td class="px-5 py-3 text-slate-500 text-xs">${formatDateTime(o.created_at)}</td>
         <td class="px-5 py-3 text-right">
-          <button data-id="${o.id}" data-action="detail" class="text-teal-600 hover:text-teal-700 font-medium">Detail</button>
+          <button data-id="${o.id}" data-action="detail" class="text-gray-900 hover:opacity-60 font-medium">Detail</button>
         </td>
       </tr>`
         )
@@ -538,7 +538,7 @@ async function openOrderModal(orderId) {
       <div class="flex justify-between"><span class="text-slate-500">Subtotal (${o.total_items} item)</span><span>${formatIDR(o.sub_amount)}</span></div>
       <div class="flex justify-between"><span class="text-slate-500">Pajak</span><span>${formatIDR(o.tax)}</span></div>
       <div class="flex justify-between text-base font-bold border-t border-slate-200 pt-2">
-        <span>Total</span><span class="text-teal-600">${formatIDR(o.total_amount)}</span>
+        <span>Total</span><span class="text-gray-900 font-bold">${formatIDR(o.total_amount)}</span>
       </div>
     </div>`;
 
@@ -588,7 +588,7 @@ const chatsState = { agentId: null, activeId: null, users: [], isManualMode: fal
 // Tombol filter channel pane kiri chat: Semua (default, abu gelap netral) /
 // WhatsApp (hijau) / Telegram (biru). Nonaktif = abu redup.
 const CHANNEL_FILTER_UI = {
-  all: { btn: "filter-all", active: "bg-gray-800 text-white shadow-sm" },
+  all: { btn: "filter-all", active: "bg-gray-900 text-white shadow-sm" },
   whatsapp: { btn: "filter-wa", active: "bg-green-500 text-white shadow-sm", label: "WhatsApp" },
   telegram: { btn: "filter-tg", active: "bg-blue-500 text-white shadow-sm", label: "Telegram" },
   inactive: "bg-gray-100 text-gray-500 hover:bg-gray-200",
@@ -599,7 +599,7 @@ function applyChannelFilterUI() {
   for (const channel of ["all", "whatsapp", "telegram"]) {
     const ui = CHANNEL_FILTER_UI[channel];
     const active = chatsState.channelFilter === channel;
-    document.getElementById(ui.btn).className = `flex-1 px-2 py-2.5 rounded-lg text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors ${
+    document.getElementById(ui.btn).className = `flex-1 px-2 py-2.5 rounded-full text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors ${
       active ? ui.active : CHANNEL_FILTER_UI.inactive
     }`;
   }
@@ -665,7 +665,7 @@ async function renderChatAgentCards() {
     agents = res.data;
   } catch (e) {
     grid.innerHTML = `
-      <div class="col-span-full bg-white rounded-2xl shadow-sm p-10 text-center">
+      <div class="col-span-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-10 text-center">
         <p class="text-sm text-slate-500">${esc(e.message)}</p>
       </div>`;
     return;
@@ -673,7 +673,7 @@ async function renderChatAgentCards() {
 
   if (!agents.length) {
     grid.innerHTML = `
-      <div class="col-span-full bg-white rounded-2xl shadow-sm p-10 text-center">
+      <div class="col-span-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-10 text-center">
         <p class="text-slate-500">Belum ada agent terdaftar.</p>
       </div>`;
     return;
@@ -683,12 +683,12 @@ async function renderChatAgentCards() {
     .map(
       (a) => `
     <button type="button" data-chat-agent="${esc(a.agent_id)}"
-      class="text-left bg-white rounded-2xl shadow-sm p-5 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-teal-500">
+      class="text-left bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 hover:-translate-y-0.5 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-900">
       <div class="flex items-start justify-between gap-2 mb-3">
         <div class="text-3xl">${esc(AGENT_CARD_EMOJI[a.agent_id] || "🤖")}</div>
         ${agentActiveBadge(a.is_active)}
       </div>
-      <h4 class="font-bold text-slate-900">${esc(a.name || a.agent_id)}</h4>
+      <h4 class="font-extrabold tracking-tighter text-black">${esc(a.name || a.agent_id)}</h4>
       <p class="text-xs text-slate-400 font-mono mb-3">ID: ${esc(a.agent_id)}</p>
       <span class="text-xs text-slate-500">Pantau percakapan agent ini →</span>
     </button>`
@@ -765,14 +765,14 @@ function renderChatUserList() {
           return `
       <button data-user-id="${esc(u.user_id)}"
         class="w-full text-left px-4 py-3 flex items-center gap-3 transition ${
-          isActive ? "bg-teal-50" : "hover:bg-slate-50"
+          isActive ? "bg-gray-100" : "hover:bg-slate-50"
         }">
         <div class="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 ${
-          isActive ? "bg-teal-500 text-white" : "bg-slate-200 text-slate-600"
+          isActive ? "bg-gray-900 text-white" : "bg-slate-200 text-slate-600"
         }">${esc(name.charAt(0).toUpperCase())}</div>
         <div class="min-w-0 flex-1">
           <div class="flex items-center justify-between gap-2">
-            <p class="text-sm font-semibold ${isActive ? "text-teal-900" : "text-slate-800"} truncate">${esc(name)}</p>
+            <p class="text-sm font-semibold ${isActive ? "text-black" : "text-slate-800"} truncate">${esc(name)}</p>
             <span class="text-[10px] text-slate-400 whitespace-nowrap">${formatTime(u.last_message_at)}</span>
           </div>
           <div class="flex items-center justify-between gap-2">
@@ -892,7 +892,7 @@ function applyManualModeUI() {
     ? "Ketik balasan Anda untuk pengguna ini..."
     : "AI is currently handling this chat. Turn on Manual Mode to reply.";
   label.textContent = isManual ? "Manual Mode: ON" : "Manual Mode";
-  label.className = `text-xs font-medium ${isManual ? "text-teal-600" : "text-slate-500"}`;
+  label.className = `text-xs font-medium ${isManual ? "text-gray-900" : "text-slate-500"}`;
 }
 
 /** Kirim pesan manual admin ke pengguna (Telegram/WhatsApp sesuai channel).
@@ -996,7 +996,7 @@ async function renderAgentCards() {
     agents = res.data;
   } catch (e) {
     grid.innerHTML = `
-      <div class="col-span-full bg-white rounded-2xl shadow-sm p-10 text-center">
+      <div class="col-span-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-10 text-center">
         <p class="text-sm text-slate-500">${esc(e.message)}</p>
       </div>`;
     return;
@@ -1004,7 +1004,7 @@ async function renderAgentCards() {
 
   if (!agents.length) {
     grid.innerHTML = `
-      <div class="col-span-full bg-white rounded-2xl shadow-sm p-10 text-center">
+      <div class="col-span-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-10 text-center">
         <p class="text-slate-500">Belum ada agent terdaftar.</p>
         <p class="text-sm text-slate-400 mt-1">Gunakan tombol “+ Tambah Agent” untuk membuat agent pertama.</p>
       </div>`;
@@ -1015,12 +1015,12 @@ async function renderAgentCards() {
     .map(
       (a) => `
     <button type="button" data-agent-card="${esc(a.agent_id)}"
-      class="text-left bg-white rounded-2xl shadow-sm p-5 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-teal-500">
+      class="text-left bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 hover:-translate-y-0.5 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-900">
       <div class="flex items-start justify-between gap-2 mb-3">
         <div class="text-3xl">${esc(AGENT_CARD_EMOJI[a.agent_id] || "🤖")}</div>
         ${agentActiveBadge(a.is_active)}
       </div>
-      <h4 class="font-bold text-slate-900">${esc(a.name || a.agent_id)}</h4>
+      <h4 class="font-extrabold tracking-tighter text-black">${esc(a.name || a.agent_id)}</h4>
       <p class="text-xs text-slate-400 font-mono mb-3">ID: ${esc(a.agent_id)}</p>
       <span data-card-status class="text-xs text-slate-500">Terakhir diubah: ${formatDateTime(a.updated_at)}</span>
     </button>`
@@ -1069,7 +1069,7 @@ async function renderAgentForm(agentId) {
 
   if (!cfg) {
     container.innerHTML = `
-    <div class="bg-white rounded-2xl shadow-sm p-10 text-center">
+    <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-10 text-center">
       <p class="text-slate-500">Konfigurasi untuk agent
         <span class="font-mono font-semibold">${esc(agentId)}</span> belum ada di database.</p>
       <p class="text-sm text-slate-400 mt-2">Tekan “⬅ Kembali” lalu tambahkan baris konfigurasinya terlebih dahulu.</p>
@@ -1078,16 +1078,16 @@ async function renderAgentForm(agentId) {
   }
 
   container.innerHTML = `
-    <div class="w-full bg-white rounded-2xl shadow-sm p-5">
+    <div class="w-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8">
       <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div>
-          <h3 class="font-bold text-slate-900">${esc(cfg.agent_id)}</h3>
+          <h3 class="text-xl font-extrabold tracking-tighter text-black">${esc(cfg.agent_id)}</h3>
           <p class="text-xs text-slate-400">Terakhir diubah: ${formatDateTime(cfg.updated_at)}</p>
         </div>
         <div class="flex items-center gap-2">
-          <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-xs">${esc(cfg.provider)}</span>
+          <span class="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs">${esc(cfg.provider)}</span>
           <button type="button" id="btn-generate-qr" title="Tautkan nomor WhatsApp baru untuk agent ini"
-            class="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-sm hover:shadow-md transition-all">
+            class="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold px-4 py-2 rounded-full shadow-sm hover:shadow-md transition-all">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z"/>
             </svg>
@@ -1100,24 +1100,24 @@ async function renderAgentForm(agentId) {
           <div>
             <label class="block text-xs font-medium text-slate-500 mb-1">Nama Tampilan</label>
             <input name="name" value="${esc(cfg.name || "")}" maxlength="100" placeholder="cth: Bot Pulsa"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-500 mb-1">Provider</label>
             <input name="provider" value="${esc(cfg.provider)}" required
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
           </div>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label class="block text-xs font-medium text-slate-500 mb-1">Temperature (0–2)</label>
             <input name="temperature" type="number" step="0.1" min="0" max="2" value="${esc(cfg.temperature)}" required
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-500 mb-1">Model</label>
             <select name="model_name"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
               ${modelOptions}
             </select>
           </div>
@@ -1127,7 +1127,7 @@ async function renderAgentForm(agentId) {
           <div class="relative">
             <input name="telegram_token" type="password" data-token-input value="${esc(cfg.telegram_token || "")}"
               autocomplete="off" spellcheck="false"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 pr-12 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-500"
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 pr-12 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900"
               placeholder="token bot Telegram (BotFather)" />
             <button type="button" data-token-toggle title="Tampilkan token"
               class="absolute right-2 top-1/2 -translate-y-1/2 px-1.5 py-1 text-base leading-none rounded hover:bg-slate-100">👁️</button>
@@ -1136,7 +1136,7 @@ async function renderAgentForm(agentId) {
         <div>
           <label class="block text-xs font-medium text-slate-500 mb-1">System Prompt</label>
           <textarea name="system_prompt" rows="12" required
-            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-500">${esc(cfg.system_prompt)}</textarea>
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900">${esc(cfg.system_prompt)}</textarea>
         </div>
         <!-- Toggle aktif: matikan untuk menonaktifkan agent ini sementara -->
         <label class="flex items-center gap-3 cursor-pointer select-none" title="Agent non-aktif tidak akan merespons pengguna">
@@ -1148,7 +1148,7 @@ async function renderAgentForm(agentId) {
           <span class="text-sm font-medium text-slate-700">Agent Aktif</span>
         </label>
         <div class="flex justify-end">
-          <button type="submit" class="bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow-sm hover:shadow-md transition-all">Simpan Perubahan</button>
+          <button type="submit" class="inline-flex items-center gap-2 rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all">Simpan Perubahan <span aria-hidden="true">→</span></button>
         </div>
       </form>
     </div>`;
@@ -1443,7 +1443,7 @@ async function fetchWahaSessions(silent = false) {
   grid.innerHTML = sessions
     .map(
       (s) => `
-    <div class="border border-slate-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+    <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 hover:-translate-y-0.5 transition-all">
       <div class="flex items-start justify-between gap-3">
         <div class="flex items-center gap-3 min-w-0">
           <div class="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0">
@@ -1497,7 +1497,7 @@ async function renderAgentWahaDevices(agentId) {
     res = await Api.get(`/agent/${encodeURIComponent(agentId)}/waha/sessions`);
   } catch (e) {
     box.innerHTML = `
-      <div class="bg-white rounded-2xl shadow-sm p-8 text-center">
+      <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 text-center">
         <p class="text-sm text-slate-500">${esc(e.message)}</p>
         <p class="text-xs text-slate-400 mt-1">Periksa apakah server WAHA berjalan, lalu buka ulang form ini.</p>
       </div>`;
@@ -1507,11 +1507,11 @@ async function renderAgentWahaDevices(agentId) {
   const devices = res.data || [];
 
   box.innerHTML = `
-    <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
-      <div class="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+    <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+      <div class="px-8 py-6 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 class="font-semibold text-slate-800">Perangkat WhatsApp Tertaut</h3>
-          <p class="text-xs text-slate-500 mt-0.5">
+          <h3 class="font-extrabold tracking-tighter text-black">Perangkat WhatsApp Tertaut</h3>
+          <p class="text-xs font-serif italic text-gray-500 mt-0.5">
             Nomor WhatsApp yang melayani agent ini — status diperbarui saat form dibuka.
           </p>
         </div>
@@ -1712,7 +1712,7 @@ async function renderAdmins() {
         <td class="px-5 py-3">${statusBadge(a.is_active ? "active" : "inactive")}</td>
         <td class="px-5 py-3 text-slate-500 text-xs">${formatDateTime(a.created_at)}</td>
         <td class="px-5 py-3 text-right whitespace-nowrap">
-          <button data-action="edit" data-id="${a.id}" class="text-teal-600 hover:text-teal-700 font-medium mr-3">Edit</button>
+          <button data-action="edit" data-id="${a.id}" class="text-gray-900 hover:opacity-60 font-medium mr-3">Edit</button>
           <button data-action="delete" data-id="${a.id}" class="text-red-600 hover:text-red-800 font-medium">Hapus</button>
         </td>
       </tr>`

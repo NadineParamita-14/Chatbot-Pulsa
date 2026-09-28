@@ -59,10 +59,10 @@ function showView(viewId) {
 function setActiveNav(name) {
   document.querySelectorAll("[data-route]").forEach((link) => {
     const isActive = link.dataset.route === name;
-    // Route aktif: efek kaca putih + teks putih penuh; inaktif semi-transparan
-    link.classList.toggle("bg-white/20", isActive);
-    link.classList.toggle("text-white", isActive);
-    link.classList.toggle("text-white/70", !isActive);
+    // Route aktif: pill abu melayang + teks hitam; inaktif teks abu redup
+    link.classList.toggle("bg-gray-100", isActive);
+    link.classList.toggle("text-black", isActive);
+    link.classList.toggle("text-gray-500", !isActive);
   });
 }
 

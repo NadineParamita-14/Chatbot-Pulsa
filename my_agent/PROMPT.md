@@ -1049,3 +1049,34 @@ To make the UI/UX intuitive, we need to change the filter into a 3-button group:
      - Click **"WhatsApp"**: Set filter to `'whatsapp'`, apply active CSS to "WhatsApp" (e.g., green), remove active CSS from Semua/TG, and render only users where `channel === 'whatsapp'`.
      - Click **"Telegram"**: Set filter to `'telegram'`, apply active CSS to "Telegram" (e.g., blue), remove active CSS from Semua/WA, and render only users where `channel === 'telegram'`.
    - Ensure the `renderChatUsers()` function accurately respects the `'all'` state by bypassing the channel `.filter()` array method when active.
+
+# Context
+The user wants a global UI/UX redesign of the admin dashboard (`index.html` and related CSS/JS) to look much more modern, minimalist, and elegant, strictly following a provided reference design. 
+The design inspiration features high-contrast typography, lots of whitespace, minimalist pill-shaped buttons, and a very specific color palette: clean white backgrounds, stark black text, and vibrant, blurred gradient mesh accents (magenta, hot pink, orange, purple) in the background.
+
+# Tasks
+
+1. **Color Palette & Background Update (The "Enblox" Aesthetic)**
+   - Remove the existing solid teal/cyan color scheme, especially from the sidebar and header. 
+   - Set the main application background to clean white (`bg-white` or `bg-slate-50`).
+   - Create a vibrant "mesh gradient" or aurora background effect behind the main content area. You can achieve this using absolute positioned div elements with Tailwind's blur utility (e.g., `bg-fuchsia-500 rounded-full blur-3xl opacity-30`, combined with orange and purple circles) or a custom CSS background. 
+   - Ensure the Sidebar and Main Header are either clean white (`bg-white`) or use a subtle glassmorphism effect (`bg-white/70 backdrop-blur-md`) so they blend elegantly with the aesthetic.
+   - All primary text must be stark black or very dark gray (`text-gray-900`).
+
+2. **Typography Update (Google Fonts)**
+   - Inside the `<head>`, import modern fonts. Use `Inter` or `Plus Jakarta Sans` for the main UI. Use `Playfair Display` for accent headings or italics.
+   - Update the global `font-family` to the new sans-serif.
+   - For main section titles (like "Dashboard", "Agent Config"), use bold, tight tracking (`font-extrabold tracking-tighter text-black`).
+   - Use the serif italic font (`font-serif italic`) for subtle subheadings or decorative text to mimic the reference's elegant contrast.
+
+3. **Button Redesign (Pill-shaped & Minimalist)**
+   - Transform all standard buttons into pill shapes (`rounded-full`).
+   - Style primary buttons with a minimalist outline: transparent background, thin black border, and black text (`border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white transition-all`).
+   - Add padding (`px-6 py-2.5`) and use small, uppercase text with letter spacing (`text-[13px] uppercase tracking-widest font-semibold`).
+   - Add a subtle right arrow `→` inside action buttons.
+
+4. **Cards, Containers & Sidebar Modernization**
+   - Update all dashboard cards (stat cards, Agent cards, chat views). Remove harsh borders/heavy drop-shadows.
+   - Use very soft, diffused shadows (`shadow-[0_8px_30px_rgb(0,0,0,0.04)]`) with pure white backgrounds (`bg-white`) and soft rounded corners (`rounded-3xl`).
+   - Increase internal padding (`p-8`) for generous whitespace.
+   - For the sidebar menu items, make the active state look like a subtle floating pill (e.g., `bg-gray-100 text-black rounded-full`) rather than a full-width colored block, keeping the unselected items as simple gray text (`text-gray-500 hover:text-black`).
