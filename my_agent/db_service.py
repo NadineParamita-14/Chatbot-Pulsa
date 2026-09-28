@@ -1,10 +1,12 @@
 import json
 import uuid
+from datetime import datetime, timezone
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from models import (
     SessionLocal,
     AgentConfig,
+    AiUsageLog,
     ChatHistory,
     Document,
     RagDocument,
@@ -946,6 +948,107 @@ def is_agent_active(agent_id: str) -> bool:
     except Exception as e:
         print(f"✗ Gagal cek status aktif agent: {e}")
         return True
+    finally:
+        session.close()
+
+
+# =====================================================================
+# LOG PEMAKAIAN AI (menu "AI Usage" Admin Panel)
+# Satu baris ai_usage_logs per balasan AI yang berhasil dibuat.
+# Harga Gemini Flash per 1 juta token (USD, kurs Rp 16.000):
+#   input  $0.075 -> Rp 1.200   |   output $0.30 -> Rp 4.800
+# =====================================================================
+AI_COST_PER_1M_INPUT = 1200.0
+AI_COST_PER_1M_OUTPUT = 4800.0
+
+
+def log_ai_usage(agent_id: str, platform_id: str, model_name: str,
+                 input_tokens: int, output_tokens: int) -> None:
+    """Catat pemakaian token satu balasan AI beserta estimasi biayanya.
+
+    Best-effort: kegagalan logging TIDAK boleh menggagalkan balasan bot,
+    jadi exception ditelan setelah dicetak ke konsol.
+    """
+    input_tokens = int(input_tokens or 0)
+    output_tokens = int(output_tokens or 0)
+    total_cost = (
+        (input_tokens / 1_000_000) * AI_COST_PER_1M_INPUT
+        + (output_tokens / 1_000_000) * AI_COST_PER_1M_OUTPUT
+    )
+    session = SessionLocal()
+    try:
+        session.add(AiUsageLog(
+            agent_id=agent_id,
+            platform_id=platform_id,
+            model_name=model_name,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_cost=total_cost,
+        ))
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        print(f"[AI USAGE] Gagal mencatat pemakaian token: {e}")
+    finally:
+        session.close()
+
+
+def get_ai_usage_summary() -> dict:
+    """Ringkasan pemakaian AI: total token & estimasi biaya bulan ini,
+    plus jumlah balasan AI hari ini."""
+    session = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        month_row = (
+            session.query(
+                func.coalesce(
+                    func.sum(AiUsageLog.input_tokens + AiUsageLog.output_tokens), 0
+                ),
+                func.coalesce(func.sum(AiUsageLog.total_cost), 0.0),
+            )
+            .filter(AiUsageLog.created_at >= start_of_month)
+            .one()
+        )
+        chats_today = (
+            session.query(func.count(AiUsageLog.id))
+            .filter(AiUsageLog.created_at >= start_of_day)
+            .scalar()
+        )
+        return {
+            "total_tokens_this_month": int(month_row[0] or 0),
+            "total_cost_this_month": float(month_row[1] or 0.0),
+            "total_conversations_today": int(chats_today or 0),
+        }
+    finally:
+        session.close()
+
+
+def get_ai_usage_logs(limit: int = 100) -> list:
+    """Log pemakaian AI terbaru (default 100 baris), terbaru di atas."""
+    session = SessionLocal()
+    try:
+        rows = (
+            session.query(AiUsageLog)
+            .order_by(AiUsageLog.created_at.desc(), AiUsageLog.id.desc())
+            .limit(limit)
+            .all()
+        )
+        return [
+            {
+                "id": r.id,
+                "agent_id": r.agent_id,
+                "platform_id": r.platform_id,
+                "model_name": r.model_name,
+                "input_tokens": r.input_tokens,
+                "output_tokens": r.output_tokens,
+                "total_cost": float(r.total_cost or 0.0),
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
     finally:
         session.close()
 

@@ -1080,3 +1080,54 @@ The design inspiration features high-contrast typography, lots of whitespace, mi
    - Use very soft, diffused shadows (`shadow-[0_8px_30px_rgb(0,0,0,0.04)]`) with pure white backgrounds (`bg-white`) and soft rounded corners (`rounded-3xl`).
    - Increase internal padding (`p-8`) for generous whitespace.
    - For the sidebar menu items, make the active state look like a subtle floating pill (e.g., `bg-gray-100 text-black rounded-full`) rather than a full-width colored block, keeping the unselected items as simple gray text (`text-gray-500 hover:text-black`).
+
+# Context
+The user wants to add a new "AI Usage" monitoring menu to the admin dashboard. This feature will track LLM token usage and estimated costs per conversation using the new Google Gen AI SDK (`google-genai`).
+
+The UI must strictly follow the newly implemented modern, minimalist aesthetic (the "Enblox" style): clean white backgrounds (`bg-white`), high-contrast black text (`text-gray-900`), extremely soft shadows (`shadow-[0_8px_30px_rgb(0,0,0,0.04)]`), generous whitespace (e.g., `p-6` or `p-8`), rounded corners (`rounded-3xl` for cards), and pill-shaped elements for active states and badges (`rounded-full`).
+
+# Tasks
+
+1. **Database Update (`models.py` or DB script)**
+   - Create a new PostgreSQL table (or SQLAlchemy model) named `ai_usage_logs`.
+   - Columns:
+     - `id` (Primary Key, Integer, Auto-increment)
+     - `agent_id` (String, Foreign Key linking to `agent_configs.id`)
+     - `platform_id` (String, the user's WA/Telegram ID/Phone Number)
+     - `model_name` (String, e.g., 'gemini-2.5-flash')
+     - `input_tokens` (Integer)
+     - `output_tokens` (Integer)
+     - `total_cost` (Float or Numeric, representing estimated cost in IDR)
+     - `created_at` (DateTime, default current time)
+   - Provide a safe migration script/function to create this table without dropping existing ones.
+
+2. **Backend Logic & AI Integration (`app.py` / AI service)**
+   - Locate the function where `client.models.generate_content(...)` is called using the new `google-genai` SDK.
+   - Extract the token usage from the response metadata:
+     - `prompt_tokens = response.usage_metadata.prompt_token_count`
+     - `completion_tokens = response.usage_metadata.candidates_token_count`
+   - Calculate the `total_cost` in IDR (Rupiah) using the standard Gemini Flash pricing ($0.075 per 1M input, $0.30 per 1M output, assuming 1 USD = Rp 16,000):
+     - `input_cost = (prompt_tokens / 1000000) * 1200`
+     - `output_cost = (completion_tokens / 1000000) * 4800`
+     - `total_cost = input_cost + output_cost`
+   - Insert this record (`agent_id`, `platform_id`, `model_name`, `input_tokens`, `output_tokens`, `total_cost`) into the `ai_usage_logs` table every time the AI successfully generates a reply.
+
+3. **Backend API Route (`app.py`)**
+   - Create a new route `GET /api/ai-usage` (protected by admin auth) that returns a JSON object containing:
+     - `summary`: Calculate `total_tokens_this_month`, `total_cost_this_month` (sum of `total_cost`), and `total_conversations_today`.
+     - `logs`: A descending list of the recent `ai_usage_logs` (limit to 100), ordered by `created_at` DESC.
+
+4. **Frontend UI Update (`index.html`)**
+   - **Sidebar**: Add a new menu item "AI Usage" in the left sidebar (use a chart, lightning bolt, or coin SVG icon). Ensure its active state uses the modern pill-shaped design (`bg-gray-100 text-black rounded-full`).
+   - **Main View**: Create a new container `<div id="view-ai-usage" class="hidden flex-1 p-4 md:p-8">`.
+   - **Header**: Add a bold heading (e.g., `<h2 class="text-2xl font-extrabold tracking-tighter text-black">AI Usage & Costs</h2>`).
+   - **Summary Cards**: Below the header, add a CSS Grid (`grid-cols-1 md:grid-cols-3 gap-6`) containing 3 minimalist stat cards: "Total Token Bulan Ini", "Estimasi Biaya Bulan Ini", and "Pesan AI Hari Ini". Style them with `bg-white rounded-3xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)]`.
+   - **Data Table**: Below the cards, create a sleek, modern table to display the logs. 
+     - Columns: Waktu, Pengguna (Platform ID), Agent, Model, Input Tokens, Output Tokens, Biaya (Rp).
+     - Style the table with minimalist aesthetics: no harsh vertical borders, subtle horizontal dividers (`border-b border-gray-100`), generous row padding (`py-4`), and use a pill-shaped badge for the model name (`bg-gray-50 text-gray-600 rounded-full px-3 py-1 text-xs`).
+
+5. **Frontend JS Logic (`app.js`)**
+   - Update the router and sidebar click listeners to show/hide `#view-ai-usage` properly.
+   - Write an async function `fetchAiUsage()` that calls `GET /api/ai-usage`.
+   - Dynamically render the summary stats into the 3 cards. Format the cost as Indonesian Rupiah (e.g., `Rp 1.520`).
+   - Loop through the `logs` array and render the rows into the table body. Format the timestamp to a readable format (e.g., `dd MMM yyyy, HH:mm`).

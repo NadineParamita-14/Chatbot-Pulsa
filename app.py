@@ -76,12 +76,15 @@ from db_service import (  # noqa: E402
     ensure_toxic_rule_in_prompts,
     get_agent_config,
     get_agent_telegram_token,
+    get_ai_usage_logs,
+    get_ai_usage_summary,
     get_all_rag_knowledge,
     get_chatted_users,
     get_chat_history as fetch_agent_chat_history,  # hindari bentrok nama route
     get_last_10_history,
     get_or_create_user,
     get_products_json_string,
+    log_ai_usage,
     parse_waha_sender,
     is_agent_active,
     is_user_blocked,
@@ -1568,6 +1571,18 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
             [outgoing_text, image] if image else outgoing_text
         )
         bot_reply = response.text if response.text else "Pesanan berhasil dicatat ke sistem."
+
+        # Log pemakaian token balasan ini (menu "AI Usage"): metadata
+        # usage dari SDK google-genai + estimasi biaya IDR. Best-effort —
+        # gagal logging tidak boleh mempengaruhi balasan.
+        usage = getattr(response, "usage_metadata", None)
+        log_ai_usage(
+            agent_id=agent_id,
+            platform_id=user.platform_id,
+            model_name=model_name,
+            input_tokens=getattr(usage, "prompt_token_count", 0) or 0,
+            output_tokens=getattr(usage, "candidates_token_count", 0) or 0,
+        )
     except Exception as e:
         print(f"[WEBHOOK] Gagal memproses AI ({agent_id}): {e}")
         bot_reply = f"Maaf, terjadi kendala pada layanan: {e}"
@@ -1934,6 +1949,24 @@ def list_agents():
             }
             for a in agents
         ]
+    )
+
+
+# =====================================================================
+# ENDPOINT: AI USAGE — monitoring token & estimasi biaya LLM
+# =====================================================================
+@app.route("/api/ai-usage", methods=["GET"])
+@admin_required  # data agregat & platform_id — aman utk semua role admin
+@api_endpoint
+def api_ai_usage():
+    """Ringkasan pemakaian AI bulan/hari ini + 100 log terbaru.
+
+    Sumber data ai_usage_logs (satu baris per balasan AI webhook)."""
+    return ok(
+        data={
+            "summary": get_ai_usage_summary(),
+            "logs": get_ai_usage_logs(limit=100),
+        }
     )
 
 

@@ -1691,6 +1691,83 @@ function deleteAgentWahaSession(agentId, sessionName) {
 }
 
 // =====================================================================
+// VIEW: AI USAGE — monitoring token & estimasi biaya LLM
+// Sumber: GET /api/ai-usage (ringkasan bulan/hari ini + 100 log terbaru
+// dari tabel ai_usage_logs, satu baris per balasan AI webhook).
+// =====================================================================
+async function renderAiUsage() {
+  await fetchAiUsage();
+}
+
+/** Ambil data pemakaian AI lalu render 3 kartu ringkasan + tabel log. */
+async function fetchAiUsage() {
+  const statsEl = document.getElementById("ai-usage-stats");
+  const tbody = document.getElementById("ai-usage-tbody");
+  setLoading(statsEl);
+  setLoading(tbody);
+
+  const res = await Api.get("/ai-usage");
+  const { summary, logs } = res.data;
+
+  // Kartu ringkasan — gaya Enblox: kartu putih rounded-3xl berbayang
+  // sangat lembut, bilah warna aksen mengikuti palet mesh gradient.
+  const cards = [
+    {
+      label: "Total Token Bulan Ini",
+      value: (summary.total_tokens_this_month || 0).toLocaleString("id-ID"),
+      sub: "jumlah token input + output",
+      color: "bg-fuchsia-500",
+    },
+    {
+      label: "Estimasi Biaya Bulan Ini",
+      value: formatIDR(summary.total_cost_this_month),
+      sub: "perkiraan biaya layanan LLM",
+      color: "bg-orange-400",
+    },
+    {
+      label: "Pesan AI Hari Ini",
+      value: (summary.total_conversations_today || 0).toLocaleString("id-ID"),
+      sub: "balasan AI yang dibuat hari ini",
+      color: "bg-purple-600",
+    },
+  ];
+
+  statsEl.innerHTML = cards
+    .map(
+      (c) => `
+      <div class="relative overflow-hidden bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 flex items-center gap-4">
+        <div class="w-2 self-stretch rounded-full ${c.color}"></div>
+        <div class="min-w-0">
+          <p class="text-xs font-medium uppercase tracking-wide text-slate-500">${esc(c.label)}</p>
+          <p class="text-3xl font-extrabold tracking-tighter text-black mt-0.5">${esc(c.value)}</p>
+          <p class="mt-1 text-sm text-slate-400">${esc(c.sub)}</p>
+        </div>
+      </div>`
+    )
+    .join("");
+
+  // Tabel log: pembatas horizontal halus, badge pil untuk nama model
+  tbody.innerHTML = logs.length
+    ? logs
+        .map(
+          (l) => `
+        <tr class="hover:bg-gray-50 transition-colors">
+          <td class="px-8 py-4 text-slate-500 whitespace-nowrap">${formatDateTime(l.created_at)}</td>
+          <td class="px-5 py-4 font-mono text-xs">${esc(l.platform_id)}</td>
+          <td class="px-5 py-4 font-medium text-gray-900">${esc(l.agent_id)}</td>
+          <td class="px-5 py-4">
+            <span class="inline-flex items-center bg-gray-50 text-gray-600 rounded-full px-3 py-1 text-xs">${esc(l.model_name)}</span>
+          </td>
+          <td class="px-5 py-4">${(l.input_tokens || 0).toLocaleString("id-ID")}</td>
+          <td class="px-5 py-4">${(l.output_tokens || 0).toLocaleString("id-ID")}</td>
+          <td class="px-5 py-4 text-right font-semibold text-gray-900 whitespace-nowrap">${formatIDR(l.total_cost)}</td>
+        </tr>`
+        )
+        .join("")
+    : emptyRow(7, "Belum ada pemakaian AI yang tercatat.");
+}
+
+// =====================================================================
 // VIEW: ADMIN MANAGEMENT (superadmin)
 // =====================================================================
 async function renderAdmins() {

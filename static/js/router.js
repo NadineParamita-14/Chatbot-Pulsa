@@ -24,6 +24,11 @@ const Routes = {
     title: "WhatsApp Session",
     render: () => renderWahaSessions(),
   },
+  "ai-usage": {
+    view: "view-ai-usage",
+    title: "AI Usage",
+    render: () => renderAiUsage(),
+  },
   "knowledge-base": {
     view: "view-knowledge-base",
     title: "Knowledge Base",

@@ -179,6 +179,44 @@ class ChatHistory(Base):
     agent = relationship("AgentConfig", back_populates="histories")
 
 
+# ==========================================
+# 6. Tabel Log Pemakaian AI (Token & Estimasi Biaya)
+# Satu baris per balasan AI yang berhasil dibuat webhook — sumber data
+# menu monitoring "AI Usage" di Admin Panel. Tabel baru: dibuat otomatis
+# oleh init_db() (Base.metadata.create_all) tanpa menyentuh tabel lain.
+# ==========================================
+class AiUsageLog(Base):
+    __tablename__ = "ai_usage_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Agent pemakai token — pola yang sama dengan chat_histories: string
+    # agent_id menunjuk kolom unik agent_configs.agent_id (FK tetap
+    # menjaga validitas; tanpa cascade agar riwayat biaya bertahan).
+    agent_id = Column(
+        String(50),
+        ForeignKey("agent_configs.agent_id"),
+        nullable=False,
+        index=True,
+    )
+
+    # Identitas routing pengguna: chat ID Telegram / nomor WA tanpa akhiran
+    platform_id = Column(String(64), nullable=False, index=True)
+
+    model_name = Column(String(100), nullable=False)
+    input_tokens = Column(Integer, nullable=False, default=0)
+    output_tokens = Column(Integer, nullable=False, default=0)
+
+    # Estimasi biaya dalam Rupiah (float cukup untuk skala log per pesan)
+    total_cost = Column(Float, nullable=False, default=0.0)
+
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+
+
 # =====================================================================
 # MIGRASI RINGAN: users multi-channel (Telegram + WhatsApp via WAHA)
 # create_all TIDAK mengubah tabel yang sudah ada, jadi kolom/constraint
