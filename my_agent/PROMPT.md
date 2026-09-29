@@ -1309,3 +1309,25 @@ def check_subscription_status(pin: str, code: str) -> dict:
             
     except Exception as e:
         return {"status": "error", "message": f"Gagal terhubung ke server DCB: {str(e)}"}
+
+# Context
+I have provided the real API JSON specification (Postman Collection) for our Direct Carrier Billing (DCB) system in the workspace. 
+
+CRITICAL INSTRUCTION: **DO NOT** process, read, or implement anything related to the "Unsub" API or endpoint. We are strictly ignoring it for now per the mentor's instructions. The `unsubscribe_service` tool in `app.py` MUST remain a mock/stub.
+
+# Tasks
+
+1. **Analyze ONLY the `check-status` API**
+   - Read the JSON file and look STRICTLY for the "Check Status" request (`POST /api/v1/check-status`).
+   - Verify the expected request payload (`pin`, `code`).
+   - Verify the exact JSON response structures for:
+     - 200 OK (Active & Inactive status inside the `data` object)
+     - 400 Bad Request (Array of missing field objects)
+     - 401 Unauthorized
+     - 404 Service Not Found
+
+2. **Review and Refine Existing Implementation**
+   - Review our current Python implementation of the `check_subscription_status` tool in `app.py`.
+   - Ensure that our JSON parsing logic (e.g., `data.get("data", {}).get("is_active")`) perfectly matches the structure found in the Postman collection.
+   - If our current code is already perfectly aligned with the JSON file, simply confirm it is correct and make no changes. 
+   - If there are discrepancies (e.g., different key names, header requirements, or nested structures), output the corrected `check_subscription_status` function. Do NOT modify any other tools.

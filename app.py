@@ -1173,6 +1173,13 @@ def check_subscription_status(pin: str, code: str) -> dict:
     base_url = os.getenv("DCB_BASE_URL", "http://127.0.0.1:5000")
     url = f"{base_url}/api/v1/check-status"
 
+    # Basic Auth (Postman collection: level collection & diulang di request;
+    # server mem-hardcode kredensialnya). Tanpa ini server menjawab 401.
+    auth = (
+        os.getenv("DCB_AUTH_USERNAME", "TSEL"),
+        os.getenv("DCB_AUTH_PASSWORD", "IN2bfkVD1L62rXtu"),
+    )
+
     headers = {
         "Content-Type": "application/json",
     }
@@ -1183,7 +1190,8 @@ def check_subscription_status(pin: str, code: str) -> dict:
     }
 
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        response = requests.post(url, json=payload, headers=headers,
+                                 auth=auth, timeout=10)
         status_code = response.status_code
 
         if status_code == 200:
