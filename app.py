@@ -73,6 +73,7 @@ from db_service import (  # noqa: E402
     check_order_status,
     create_new_agent_config,
     create_new_order,
+    ensure_cs_agent_prompt_upgrade,
     ensure_toxic_rule_in_prompts,
     get_agent_config,
     get_agent_telegram_token,
@@ -103,9 +104,15 @@ load_dotenv(BASE_DIR / ".env")
 
 # Dipanggil di level modul (bukan hanya __main__) agar ikut jalan saat
 # server start di mana pun — python app.py maupun gunicorn (Docker).
-# Idempoten: hanya menambah ATURAN MUTLAK ke system prompt agent yang
+# Idempoten: prompt cs_agent hanya ditimpa bila belum versi Function
+# Calling (DCB); lalu ATURAN MUTLAK toxic ditambahkan ke prompt yang
 # belum memilikinya. Best-effort: kegagalan DB tidak boleh menggagalkan
 # start aplikasi.
+try:
+    ensure_cs_agent_prompt_upgrade()
+except Exception as _e:  # pragma: no cover
+    print(f"[STARTUP] Peringatan: ensure_cs_agent_prompt_upgrade gagal: {_e}")
+
 try:
     ensure_toxic_rule_in_prompts()
 except Exception as _e:  # pragma: no cover
@@ -1149,6 +1156,76 @@ def _get_gemini_client():
     return _gemini_client
 
 
+# ---------------------------------------------------------------------
+# TOOLS DCB (Direct Carrier Billing) — CS Agent PT Pass Indonesia.
+# Docstring di bawah DIBACA Gemini untuk memutuskan kapan tool dipanggil
+# — jangan diubah sembarangan.
+# ---------------------------------------------------------------------
+def check_subscription_status(pin: str, code: str) -> dict:
+    """
+    Mengecek status aktif/inaktif dari layanan berlangganan pelanggan ke sistem DCB.
+    Gunakan tool ini HANYA SETELAH berhasil mengekstrak 'pin' dan 'code' dari SMS pelanggan.
+
+    Args:
+        pin: PIN verifikasi (angka) yang diekstrak dari pesan/SMS pelanggan.
+        code: Kode layanan resmi (misal: HISTERIA, GOFIT3).
+    """
+    base_url = os.getenv("DCB_BASE_URL", "http://127.0.0.1:5000")
+    url = f"{base_url}/api/v1/check-status"
+
+    headers = {
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "pin": pin,
+        "code": code
+    }
+
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        status_code = response.status_code
+
+        if status_code == 200:
+            data = response.json()
+            return {
+                "status": "success",
+                "is_active": data.get("data", {}).get("is_active"),
+                "service_code": data.get("data", {}).get("service_code"),
+                "message": f"Layanan berstatus {data.get('message')}"
+            }
+        elif status_code == 400:
+            try:
+                error_data = response.json()
+                if isinstance(error_data, list) and len(error_data) > 0:
+                    missing_field = error_data[0].get("FailedField", "Unknown")
+                    return {"status": "error", "message": f"Data tidak lengkap. Field bermasalah: {missing_field}"}
+            except Exception:
+                pass
+            return {"status": "error", "message": "Format permintaan tidak valid (400). Pastikan pin dan code benar."}
+        elif status_code == 401:
+            return {"status": "error", "message": "Akses ke sistem DCB ditolak (401 Unauthorized)."}
+        elif status_code == 404:
+            return {"status": "error", "message": f"Layanan dengan kode {code} tidak ditemukan di sistem (404)."}
+        else:
+            return {"status": "error", "message": f"Sistem DCB mengembalikan error HTTP {status_code}"}
+
+    except Exception as e:
+        return {"status": "error", "message": f"Gagal terhubung ke server DCB: {str(e)}"}
+
+
+def unsubscribe_service(phone_number: str, service_code: str, pin: str = None) -> dict:
+    """Membatalkan atau menghentikan (UNREG) layanan berlangganan tertentu milik pelanggan ke sistem DCB. Wajib dipanggil setelah pelanggan memberikan konfirmasi berupa copy-paste SMS atau screenshot dari 99790."""
+    return {
+        "status": "success",
+        "message": f"Layanan {service_code} berhasil dihentikan untuk nomor {phone_number}.",
+    }
+
+
+# Batas round eksekusi tool per pesan masuk (cegah loop tak berujung).
+MAX_TOOL_ROUNDS = 5
+
+
 def _build_webhook_tools(agent_id: str, user: User) -> list:
     """Tool Gemini per agent — port dari bot.py (pulsa) & bot_cs.py (CS).
     Agent lain (baru) berjalan tanpa tool (Q&A murni)."""
@@ -1162,6 +1239,8 @@ def _build_webhook_tools(agent_id: str, user: User) -> list:
         tools.append(create_order_for_user)
     elif agent_id == "cs_agent":
         tools.append(check_order_status)
+        tools.append(check_subscription_status)
+        tools.append(unsubscribe_service)
     return tools
 
 
@@ -1550,6 +1629,15 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
             f"[SISTEM HIDDEN CONTEXT - STOK TERKINI: {get_products_json_string()}]\n\n"
             f"Pertanyaan Pengguna: {user_text}"
         )
+    elif agent_id == "cs_agent":
+        # Context injection DCB: platform_id user WhatsApp adalah nomor HP
+        # pelanggan — AI memanggil tools langsung tanpa menanyakan nomor.
+        # Catatan ini TERSEMBUNYI dari user (tidak ikut tersimpan di
+        # chat_histories maupun dikirim balik).
+        outgoing_text = (
+            f"[SYSTEM NOTE: Nomor HP pelanggan ini adalah {user.platform_id}. "
+            f"Gunakan nomor ini langsung jika memanggil tools.]\n\n{user_text}"
+        )
     else:
         outgoing_text = user_text
 
@@ -1572,6 +1660,12 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
         }
         if tools:
             config_kwargs["tools"] = tools
+            # Automatic Function Calling bawaan SDK dimatikan: eksekusi
+            # tool memakai loop manual di bawah agar tiap round tercatat
+            # di log dan usage token terakumulasi utk menu "AI Usage".
+            config_kwargs["automatic_function_calling"] = (
+                types.AutomaticFunctionCallingConfig(disable=True)
+            )
         chat_session = _get_gemini_client().chats.create(
             model=model_name,
             config=types.GenerateContentConfig(**config_kwargs),
@@ -1580,18 +1674,53 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
         response = chat_session.send_message(
             [outgoing_text, image] if image else outgoing_text
         )
+
+        # FUNCTION CALLING LOOP: selama model meminta tool, jalankan fungsi
+        # Python lokalnya lalu kirim hasilnya balik lewat
+        # Part.from_function_response sampai model menulis jawaban akhir
+        # (atau batas MAX_TOOL_ROUNDS tercapai).
+        tool_map = {fn.__name__: fn for fn in tools}
+        prompt_tokens = 0
+        completion_tokens = 0
+        for round_no in range(MAX_TOOL_ROUNDS + 1):
+            usage = getattr(response, "usage_metadata", None)
+            prompt_tokens += getattr(usage, "prompt_token_count", 0) or 0
+            completion_tokens += getattr(usage, "candidates_token_count", 0) or 0
+
+            calls = getattr(response, "function_calls", None) or []
+            if not calls or round_no == MAX_TOOL_ROUNDS:
+                break
+
+            response_parts = []
+            for fc in calls:
+                fn = tool_map.get(fc.name)
+                if fn is None:
+                    result = {"status": "error",
+                              "message": f"Tool '{fc.name}' tidak dikenal."}
+                else:
+                    try:
+                        result = fn(**(fc.args or {}))
+                    except Exception as e:
+                        print(f"[WEBHOOK:{agent_id}] Tool {fc.name} gagal: {e}")
+                        result = {"status": "error", "message": str(e)}
+                print(f"[WEBHOOK:{agent_id}] Tool {fc.name}({fc.args or {}}) dipanggil.")
+                response_parts.append(
+                    types.Part.from_function_response(name=fc.name, response=result)
+                )
+            response = chat_session.send_message(response_parts)
+
         bot_reply = response.text if response.text else "Pesanan berhasil dicatat ke sistem."
 
-        # Log pemakaian token balasan ini (menu "AI Usage"): metadata
-        # usage dari SDK google-genai + estimasi biaya IDR. Best-effort —
-        # gagal logging tidak boleh mempengaruhi balasan.
-        usage = getattr(response, "usage_metadata", None)
+        # Log pemakaian token balasan ini (menu "AI Usage"): akumulasi
+        # metadata usage SELURUH round (teks + panggilan tool) dari SDK
+        # google-genai + estimasi biaya IDR. Best-effort — gagal logging
+        # tidak boleh mempengaruhi balasan.
         log_ai_usage(
             agent_id=agent_id,
             platform_id=user.platform_id,
             model_name=model_name,
-            input_tokens=getattr(usage, "prompt_token_count", 0) or 0,
-            output_tokens=getattr(usage, "candidates_token_count", 0) or 0,
+            input_tokens=prompt_tokens,
+            output_tokens=completion_tokens,
         )
     except Exception as e:
         print(f"[WEBHOOK] Gagal memproses AI ({agent_id}): {e}")

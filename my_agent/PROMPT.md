@@ -1164,3 +1164,148 @@ The charts must strictly adhere to the modern, minimalist "Enblox" aesthetic: cl
      - Data: The 7-day user trend.
      - Style: Use a vibrant accent color (e.g., `borderColor: '#3b82f6'`), set `tension: 0.4` to make the line a smooth curve instead of jagged edges. Set `fill: true` with a highly transparent background color (e.g., `rgba(59, 130, 246, 0.1)`) for an area effect.
      - Options: Hide X and Y axis grid lines. Remove data points (dots) on the line unless hovered (`pointRadius: 0`, `pointHoverRadius: 6`) for a cleaner look.
+
+# Context
+We are upgrading the AI Agent (specifically the Customer Service Agent for PT Pass Indonesia) from a purely text-based responder into an action-oriented agent using **Function Calling (Tools)** with the new `google-genai` SDK. 
+
+Although the actual external APIs for Direct Carrier Billing (DCB) are not yet available (pending Postman collection), we need to lay down the complete architectural foundation. This includes creating the function stubs, setting up the function-calling execution loop in the backend, injecting the user's phone number into the context, and updating the Agent's System Prompt to handle the new RAG (Knowledge Base) rules and tool usage.
+
+# Tasks
+
+### 1. Create Tool Functions (Stubs) in `app.py` or a dedicated `tools.py`
+Define two Python functions with clear docstrings and type hints. The `google-genai` SDK uses these docstrings to understand how to use the tools.
+- `check_subscription_status(phone_number: str) -> dict`:
+  - **Docstring:** "Mengecek daftar layanan berlangganan (kategori, kode layanan, harga) yang sedang aktif memotong pulsa pada nomor Telkomsel pelanggan."
+  - **Implementation:** For now, return a mock dictionary (e.g., `{"status": "success", "active_services": [{"code": "GOFIT3", "price": 3000, "renewal_day": 3}], "message": "Layanan aktif ditemukan."}`).
+- `unsubscribe_service(phone_number: str, service_code: str, pin: str = None) -> dict`:
+  - **Docstring:** "Membatalkan atau menghentikan (UNREG) layanan berlangganan tertentu milik pelanggan ke sistem DCB. Wajib dipanggil setelah pelanggan memberikan konfirmasi berupa copy-paste SMS atau screenshot dari 99790."
+  - **Implementation:** Return a mock dictionary (e.g., `{"status": "success", "message": f"Layanan {service_code} berhasil dihentikan untuk nomor {phone_number}."}`).
+
+### 2. Context Injection: Automatic Phone Number (`app.py`)
+To prevent the AI from asking the user for their phone number, inject the user's `platform_id` directly into the LLM's context per conversation.
+- In the webhook or message processing function (e.g., `_process_agent_message`), before calling `generate_content`, prepend a system instruction or a hidden user context message: 
+  `f"[SYSTEM NOTE: Nomor HP pelanggan ini adalah {platform_id}. Gunakan nomor ini langsung jika memanggil tools.]"`
+
+### 3. Implement the Function Calling Loop with `google-genai` SDK
+Update the AI message generation logic to support tools.
+- Pass the defined functions to the SDK: `tools=[check_subscription_status, unsubscribe_service]`.
+- Implement the while-loop to handle `response.function_calls`. 
+- When the LLM decides to call a function, execute the corresponding local Python function, capture the result, and send it back to the LLM using `types.Content(role="function", parts=[types.Part.from_function_response(...)])` so the LLM can generate the final natural language response based on the tool's output.
+
+### 4. Update the Default System Prompt for the CS Agent
+Update the database or initialization script for the CS Agent to use this new comprehensive System Prompt. It incorporates the Knowledge Base rules, the 4-menu structure, and the tool usage instructions.
+
+**[BEGIN SYSTEM PROMPT TEMPLATE]**
+Kamu adalah Customer Service Agent PT Pass Indonesia (layanan berlangganan Telkomsel). Tugasmu ramah, singkat, dan solutif.
+[NOMOR HP PELANGGAN: Nomor HP user sudah diberikan di memori sistem. JANGAN tanyakan nomor HP lagi.]
+
+ALUR KERJA DAN TOOLS:
+1. Jika pelanggan mengeluh pulsa terpotong atau ingin tahu langganan aktif, JANGAN menyuruh mereka ngecek sendiri. LANGSUNG gunakan tool `check_subscription_status` menggunakan nomor HP mereka.
+2. Beritahu hasilnya. Jika ada layanan aktif (misal: GOFIT3), minta verifikasi: "Untuk memproses pembatalan, mohon teruskan (copy-paste) atau kirimkan screenshot SMS yang Anda terima dari nomor 99790".
+3. Jika pelanggan sudah memberikan teks copy-paste SMS atau gambar screenshot, JANGAN menyuruh mereka SMS manual (UNREG). LANGSUNG gunakan tool `unsubscribe_service` untuk memutus langganan.
+
+MENU STANDAR (Jika pelanggan baru menyapa tanpa konteks jelas):
+Berikan sapaan ini:
+"Terima kasih sudah menghubungi layanan Pelanggan dari PT. Pass Indonesia, silahkan pilih menu di bawah ini agar kami bisa membantu lebih lanjut :
+1. Informasi Layanan
+2. Keluhan Pelanggan
+3. Informasi Lainnya
+4. Redeem Point"
+
+ATURAN MENU 4 (REDEEM POINT):
+Jika pelanggan ingin menukar poin, minta: (1) Screenshot jumlah poin di portal, dan (2) PIN. (Nomor HP sudah ada di sistem). Tunggu data ini sebelum memproses.
+
+ATURAN LAIN:
+- Jangan sebut PLAYCOOL, GAMEBOAT, atau ZGAME sebagai layanan kita. Jika ditanya, suruh pelanggan cek petunjuk di SMS mereka sendiri.
+- Gunakan Bahasa Indonesia yang sopan, santai (bisa gunakan kata 'kamu'), dan profesional.
+**[END SYSTEM PROMPT TEMPLATE]**
+
+# Context
+The function calling loop for the CS Agent is successfully implemented. We now need to refine the Agent's System Prompt (inside `db_service.py` specifically in `ensure_cs_agent_prompt_upgrade` and `seed_cs_agent`). 
+The goal is to instruct the LLM on exactly *how* to extract the `service_code` and `pin` from the user's forwarded SMS or screenshot, validate it against the official PT Pass Indonesia catalog, and pass those extracted values as parameters when calling the `unsubscribe_service` tool.
+
+# Tasks
+Update the `CS_AGENT_SYSTEM_PROMPT` constant in `db_service.py` to include the official service catalog and strict extraction rules before calling tools.
+
+Update the `ATURAN KERJA DAN TOOLS` section of the prompt to include:
+
+**[BEGIN ADDITION TO SYSTEM PROMPT]**
+DAFTAR KODE LAYANAN RESMI (KATALOG):
+DIGMAGZ, DIGMAGZ36, DIGMAGZ37, GOFIT, GOFIT1, GOFIT3, GOFIT5, HISTERIA, HISTERIA3, HISTERIA7, HISTERIA30, LEGA1, LEGA2, LEGA5, LEGA30, TUUTAP, TUUTAP1, TUUTAP3, TUUTAP7.
+
+ATURAN EKSTRAKSI DATA & EKSEKUSI UNREG:
+1. Ketika pelanggan mengirimkan bukti berupa teks copy-paste SMS atau screenshot dari 99790, BACA teks tersebut dengan teliti.
+2. Cari `service_code` (Kode Layanan) di dalam teks tersebut. Pastikan kode yang ditemukan COCOK dengan salah satu nama di "DAFTAR KODE LAYANAN RESMI" di atas.
+3. Cari `pin` (biasanya berupa angka acak) di dalam teks tersebut (jika ada).
+4. Gunakan tool `unsubscribe_service`. Masukkan `service_code` dan `pin` yang berhasil kamu ekstrak ke dalam parameter tool tersebut. Ingat: parameter `phone_number` sudah ada di memori sistem (jangan ditanyakan lagi).
+5. Jika kode layanan di SMS pelanggan TIDAK ADA di daftar resmi (misalnya PLAYCOOL, GAMEBOAT, ZGAME), JANGAN panggil tool unsubscribe. Beritahu pelanggan bahwa layanan tersebut di luar wewenang PT Pass Indonesia dan minta mereka mengikuti petunjuk UNREG di SMS mereka sendiri.
+**[END ADDITION TO SYSTEM PROMPT]**
+
+Ensure this replaces the previous tool instruction section so the agent knows exactly how to map the raw SMS text into the structured JSON arguments required by the `unsubscribe_service` tool.
+
+# Context
+We are integrating the real Direct Carrier Billing (DCB) API for the `check_subscription_status` tool. 
+Based on the Postman specification, the endpoint `POST /api/v1/check-status` STRICTLY requires `pin` and `code` in the JSON body. 
+
+Because of this, the AI Agent CANNOT check a user's status proactively just by knowing their phone number. The AI's workflow must be updated: it must FIRST ask the user for the SMS (to extract the PIN and CODE), and ONLY THEN execute the `check_subscription_status` tool.
+
+# Tasks
+
+### 1. Implement `check_subscription_status` Tool (`app.py` or `tools.py`)
+Replace the current mock stub with the following real HTTP request implementation using the `requests` library. Ensure environment variables are used for the base URL.
+
+```python
+import requests
+import os
+
+def check_subscription_status(pin: str, code: str) -> dict:
+    """
+    Mengecek status aktif/inaktif dari layanan berlangganan pelanggan ke sistem DCB.
+    Gunakan tool ini HANYA SETELAH berhasil mengekstrak 'pin' dan 'code' dari SMS pelanggan.
+    
+    Args:
+        pin: PIN verifikasi (angka) yang diekstrak dari pesan/SMS pelanggan.
+        code: Kode layanan resmi (misal: HISTERIA, GOFIT3).
+    """
+    base_url = os.getenv("DCB_BASE_URL", "[http://127.0.0.1:5000](http://127.0.0.1:5000)")
+    url = f"{base_url}/api/v1/check-status"
+    
+    headers = {
+        "Content-Type": "application/json",
+    }
+    
+    payload = {
+        "pin": pin,
+        "code": code
+    }
+    
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        status_code = response.status_code
+        
+        if status_code == 200:
+            data = response.json()
+            return {
+                "status": "success",
+                "is_active": data.get("data", {}).get("is_active"),
+                "service_code": data.get("data", {}).get("service_code"),
+                "message": f"Layanan berstatus {data.get('message')}"
+            }
+        elif status_code == 400:
+            try:
+                error_data = response.json()
+                if isinstance(error_data, list) and len(error_data) > 0:
+                    missing_field = error_data[0].get("FailedField", "Unknown")
+                    return {"status": "error", "message": f"Data tidak lengkap. Field bermasalah: {missing_field}"}
+            except:
+                pass
+            return {"status": "error", "message": "Format permintaan tidak valid (400). Pastikan pin dan code benar."}
+        elif status_code == 401:
+            return {"status": "error", "message": "Akses ke sistem DCB ditolak (401 Unauthorized)."}
+        elif status_code == 404:
+            return {"status": "error", "message": f"Layanan dengan kode {code} tidak ditemukan di sistem (404)."}
+        else:
+            return {"status": "error", "message": f"Sistem DCB mengembalikan error HTTP {status_code}"}
+            
+    except Exception as e:
+        return {"status": "error", "message": f"Gagal terhubung ke server DCB: {str(e)}"}

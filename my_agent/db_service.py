@@ -656,6 +656,48 @@ def mark_order_as_paid(invoice_number: str):
     finally:
         session.close()
 
+# System prompt CS Agent versi Function Calling (agent DCB PT Pass
+# Indonesia — instruksi PROMPT.md). Dipakai seed_cs_agent() untuk DB baru
+# dan ensure_cs_agent_prompt_upgrade() untuk mengangkat instans lama.
+# Marker = frasa khas versi TERBARU (alur "minta SMS dulu, cek belakangan"),
+# sehingga upgrade menangani instans lama MANA PUN: v0 (CS pulsa lama),
+# v1 (DCB pertama), v2 (katalog, tapi masih cek langsung via nomor HP).
+CS_AGENT_PROMPT_MARKER = "HANYA SETELAH berhasil mengekstrak 'pin' dan 'code'"
+
+CS_AGENT_SYSTEM_PROMPT = """Kamu adalah Customer Service Agent PT Pass Indonesia (layanan berlangganan Telkomsel). Tugasmu ramah, singkat, dan solutif.
+[NOMOR HP PELANGGAN: Nomor HP user sudah diberikan di memori sistem. JANGAN tanyakan nomor HP lagi.]
+
+ALUR KERJA DAN TOOLS:
+1. Jika pelanggan mengeluh pulsa terpotong atau ingin tahu langganan aktif, JANGAN memanggil tool apa pun dan JANGAN menyuruh mereka cek sendiri. Sistem DCB mengecek status memakai PIN + kode layanan yang HANYA ada di SMS dari 99790 — maka minta dulu pelanggan meneruskan (copy-paste) atau mengirim screenshot SMS yang mereka terima dari nomor 99790.
+2. Setelah SMS diterima, ikuti ATURAN EKSTRAKSI DATA & EKSEKUSI UNREG di bawah. Gunakan tool `check_subscription_status` HANYA SETELAH berhasil mengekstrak 'pin' dan 'code' dari SMS pelanggan.
+3. Beritahu hasil pengecekan dengan jelas. Jika layanan terbukti aktif dan pelanggan ingin berhenti, LANGSUNG gunakan tool `unsubscribe_service` (tanpa minta verifikasi lagi) untuk memutus langganan — jangan menyuruh mereka SMS manual (UNREG).
+
+DAFTAR KODE LAYANAN RESMI (KATALOG):
+DIGMAGZ, DIGMAGZ36, DIGMAGZ37, GOFIT, GOFIT1, GOFIT3, GOFIT5, HISTERIA, HISTERIA3, HISTERIA7, HISTERIA30, LEGA1, LEGA2, LEGA5, LEGA30, TUUTAP, TUUTAP1, TUUTAP3, TUUTAP7.
+
+ATURAN EKSTRAKSI DATA & EKSEKUSI UNREG:
+1. Ketika pelanggan mengirimkan bukti berupa teks copy-paste SMS atau screenshot dari 99790, BACA teks tersebut dengan teliti.
+2. Cari kode layanan di dalam teks tersebut. Pastikan kode yang ditemukan COCOK dengan salah satu nama di "DAFTAR KODE LAYANAN RESMI" di atas.
+3. Cari `pin` (biasanya berupa angka acak) di dalam teks tersebut (jika ada).
+4. Masukkan hasil ekstraksi ke parameter tool: kode layanan menjadi `code` pada tool `check_subscription_status(pin, code)` untuk mengecek status, dan menjadi `service_code` pada tool `unsubscribe_service(phone_number, service_code, pin)` saat akan memutus langganan. Ingat: `phone_number` sudah ada di memori sistem (jangan ditanyakan lagi).
+5. Jika kode layanan di SMS pelanggan TIDAK ADA di daftar resmi (misalnya PLAYCOOL, GAMEBOAT, ZGAME), JANGAN panggil tool unsubscribe. Beritahu pelanggan bahwa layanan tersebut di luar wewenang PT Pass Indonesia dan minta mereka mengikuti petunjuk UNREG di SMS mereka sendiri.
+
+MENU STANDAR (Jika pelanggan baru menyapa tanpa konteks jelas):
+Berikan sapaan ini:
+"Terima kasih sudah menghubungi layanan Pelanggan dari PT. Pass Indonesia, silahkan pilih menu di bawah ini agar kami bisa membantu lebih lanjut :
+1. Informasi Layanan
+2. Keluhan Pelanggan
+3. Informasi Lainnya
+4. Redeem Point"
+
+ATURAN MENU 4 (REDEEM POINT):
+Jika pelanggan ingin menukar poin, minta: (1) Screenshot jumlah poin di portal, dan (2) PIN. (Nomor HP sudah ada di sistem). Tunggu data ini sebelum memproses.
+
+ATURAN LAIN:
+- Jangan sebut PLAYCOOL, GAMEBOAT, atau ZGAME sebagai layanan kita. Jika ditanya, suruh pelanggan cek petunjuk di SMS mereka sendiri.
+- Gunakan Bahasa Indonesia yang sopan, santai (bisa gunakan kata 'kamu'), dan profesional."""
+
+
 def seed_cs_agent():
     """Pastikan konfigurasi agent Customer Service (cs_agent) tersedia.
     Wajib ada sebelum bot_cs menyimpan riwayat: chat_histories.agent_id
@@ -674,13 +716,6 @@ def seed_cs_agent():
             session.commit()
             print("[OK] Agent 'cs_agent' sudah terdaftar, seed dilewati.")
             return
-        prompt_cs = (
-            "Kamu adalah agen Customer Service (CS) toko pulsa otomatis yang ramah, sabar, dan empatik. "
-            "Tugasmu: menjawab FAQ (harga, cara pembelian, metode pembayaran), membantu pengecekan status "
-            "pesanan berdasarkan nomor invoice, dan menangani keluhan pelanggan dengan tenang. "
-            "Jika keluhan tidak bisa diselesaikan otomatis, beri tahu pelanggan bahwa admin manusia akan "
-            "segera mengambil alih percakapan. Jawab ringkas, sopan, dan gunakan Bahasa Indonesia."
-        )
         session.add(AgentConfig(
             agent_id="cs_agent",
             name="Bot Customer Service",
@@ -688,11 +723,36 @@ def seed_cs_agent():
             is_active=True,
             provider="google",
             model_name="gemini-2.5-flash",
-            system_prompt=prompt_cs,
+            system_prompt=CS_AGENT_SYSTEM_PROMPT,
             temperature=0.3,
         ))
         session.commit()
         print("[OK] Agent 'cs_agent' berhasil dibuat.")
+    finally:
+        session.close()
+
+
+def ensure_cs_agent_prompt_upgrade():
+    """Angkat system prompt cs_agent lama ke versi terbaru (SMS dulu, cek belakangan).
+
+    Dipanggil saat aplikasi start (app.py) SEBELUM ensure_toxic_rule_in_prompts()
+    — aturan toxic akan ditambahkan ulang otomatis ke prompt baru tersebut.
+    Marker = frasa khas versi terbaru, sehingga instans lama mana pun
+    (CS pulsa lama / DCB v1 / katalog v2) ikut tertimpa; prompt yang sudah
+    memuat frasa tersebut dibiarkan (idempoten & aman dipanggil berulang).
+    Best-effort: kegagalan DB tidak boleh menggagalkan start aplikasi.
+    """
+    session = SessionLocal()
+    try:
+        agent = session.query(AgentConfig).filter_by(agent_id="cs_agent").first()
+        if agent is None or CS_AGENT_PROMPT_MARKER in (agent.system_prompt or ""):
+            return
+        agent.system_prompt = CS_AGENT_SYSTEM_PROMPT
+        session.commit()
+        print("[OK] System prompt cs_agent di-upgrade ke versi check-status via PIN SMS.")
+    except Exception as e:
+        session.rollback()
+        print(f"✗ Gagal upgrade system prompt cs_agent: {e}")
     finally:
         session.close()
 
