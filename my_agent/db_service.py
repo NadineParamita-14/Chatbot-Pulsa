@@ -668,10 +668,11 @@ def mark_order_as_paid(invoice_number: str):
 #
 # Dipakai seed_cs_agent() untuk DB baru dan ensure_cs_agent_prompt_upgrade()
 # untuk mengangkat instans lama. Marker = frasa khas versi TERBARU
-# (output JSON-only), sehingga upgrade menangani instans lama MANA PUN:
-# v0 (CS pulsa lama), v1 (DCB pertama), v2 (katalog + cek via PIN SMS,
-# tapi jawabannya masih teks bebas).
-CS_AGENT_PROMPT_MARKER = "OUTPUT WAJIB JSON ONLY"
+# (redaksi "tidak ada layanan yang perlu dinonaktifkan"), sehingga upgrade
+# menangani instans lama MANA PUN: v0 (CS pulsa lama), v1 (DCB pertama),
+# v2 (katalog + cek via PIN SMS), v3 (output JSON, tapi frasa "sudah tidak
+# aktif" yang menyesatkan masih dipakai).
+CS_AGENT_PROMPT_MARKER = "tidak ada layanan yang perlu dinonaktifkan"
 
 CS_AGENT_SYSTEM_PROMPT = """Anda adalah Customer Service Agent PT Pass Indonesia (layanan berlangganan Telkomsel). Tugasmu akurat, singkat, dan solutif.
 
@@ -703,7 +704,8 @@ CS_AGENT_SYSTEM_PROMPT = """Anda adalah Customer Service Agent PT Pass Indonesia
    - Ekstrak `service_code` dan `pin`.
    - Pastikan `service_code` ada di DAFTAR RESMI.
    - Panggil tool `check_subscription_status(pin, code)`.
-   - Jika terbukti aktif dan pelanggan ingin berhenti, LANGSUNG gunakan tool `unsubscribe_service(phone_number, service_code, pin)`.
+   - Jika terbukti AKTIF dan pelanggan ingin berhenti, LANGSUNG gunakan tool `unsubscribe_service(phone_number, service_code, pin)`.
+   - Jika hasil cek status TIDAK AKTIF, balas dengan jelas bahwa: "Layanan tersebut memang tidak aktif/tidak terdaftar, sehingga tidak ada layanan yang perlu dinonaktifkan." JANGAN gunakan frasa "sudah tidak aktif" agar pelanggan tidak salah paham mengira mereka sempat berlangganan.
 3. Jika intent OUT_OF_SCOPE (kode layanan tidak ada di daftar): Beritahu layanan di luar wewenang dan suruh ikuti petunjuk UNREG di SMS mereka. JANGAN panggil tool.
 
 ## DAFTAR KODE LAYANAN RESMI (KATALOG):
@@ -759,9 +761,10 @@ def ensure_cs_agent_prompt_upgrade():
     Template memuat placeholder {customer_name}/{phone_number} yang diisi
     per pesan oleh _format_cs_prompt (app.py), jadi JANGAN di-.format() di sini.
     Marker = frasa khas versi terbaru, sehingga instans lama mana pun
-    (CS pulsa lama / DCB v1 / katalog v2) ikut tertimpa; prompt yang sudah
-    memuat frasa tersebut dibiarkan (idempoten & aman dipanggil berulang).
-    Best-effort: kegagalan DB tidak boleh menggagalkan start aplikasi.
+    (CS pulsa lama / DCB v1 / katalog v2 / JSON v3) ikut tertimpa; prompt
+    yang sudah memuat frasa tersebut dibiarkan (idempoten & aman dipanggil
+    berulang). Best-effort: kegagalan DB tidak boleh menggagalkan start
+    aplikasi.
     """
     session = SessionLocal()
     try:
@@ -770,7 +773,8 @@ def ensure_cs_agent_prompt_upgrade():
             return
         agent.system_prompt = CS_AGENT_SYSTEM_PROMPT
         session.commit()
-        print("[OK] System prompt cs_agent di-upgrade ke versi output JSON terstruktur.")
+        print("[OK] System prompt cs_agent di-upgrade ke versi redaksi "
+              "layanan tidak terdaftar.")
     except Exception as e:
         session.rollback()
         print(f"✗ Gagal upgrade system prompt cs_agent: {e}")

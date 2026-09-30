@@ -1388,3 +1388,19 @@ Tawarkan: 1. Informasi Layanan, 2. Keluhan Pelanggan, 3. Informasi Lainnya, 4. R
 ## ATURAN MUTLAK (TOXIC):
 Jika pengguna toxic/kasar, set intent ke "TOXIC", kosongkan extracted_data, dan set reply_message menjadi string kosong atau null.
 """
+
+# Context
+We need to tweak the `SYSTEM_PROMPT` for our WhatsApp CS Agent to improve the customer experience. Currently, when the `check_subscription_status` tool returns inactive, the bot replies with "layanan sudah tidak aktif". We want to change this phrasing to avoid implying that the customer was previously subscribed.
+
+# Tasks
+Update the `ALUR KERJA DAN TOOLS` section inside the `SYSTEM_PROMPT` string in `app.py`. Modify Step 2 to explicitly instruct the LLM on how to phrase the inactive status.
+
+Replace the current Step 2 in `ALUR KERJA DAN TOOLS` with this exact text (remembering to keep the double curly braces for JSON if applicable elsewhere, though this section doesn't have them):
+
+```text
+2. Jika intent PROCESS_SMS_DATA (pelanggan mengirim SMS bukti): 
+   - Ekstrak `service_code` dan `pin`.
+   - Pastikan `service_code` ada di DAFTAR RESMI.
+   - Panggil tool `check_subscription_status(pin, code)`.
+   - Jika terbukti AKTIF dan pelanggan ingin berhenti, LANGSUNG gunakan tool `unsubscribe_service(phone_number, service_code, pin)`.
+   - Jika hasil cek status TIDAK AKTIF, balas dengan jelas bahwa: "Layanan tersebut memang tidak aktif/tidak terdaftar, sehingga tidak ada layanan yang perlu dinonaktifkan." JANGAN gunakan frasa "sudah tidak aktif" agar pelanggan tidak salah paham mengira mereka sempat berlangganan.
