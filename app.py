@@ -1224,11 +1224,94 @@ def check_subscription_status(pin: str, code: str) -> dict:
 
 
 def unsubscribe_service(phone_number: str, service_code: str, pin: str = None) -> dict:
-    """Membatalkan atau menghentikan (UNREG) layanan berlangganan tertentu milik pelanggan ke sistem DCB. Wajib dipanggil setelah pelanggan memberikan konfirmasi berupa copy-paste SMS atau screenshot dari 99790."""
-    return {
-        "status": "success",
-        "message": f"Layanan {service_code} berhasil dihentikan untuk nomor {phone_number}.",
+    """
+    Membatalkan atau menghentikan (UNREG) layanan berlangganan tertentu milik
+    pelanggan ke sistem DCB. Wajib dipanggil setelah pelanggan memberikan
+    konfirmasi berupa copy-paste SMS atau screenshot dari 99790, dan HANYA
+    jika hasil check_subscription_status menunjukkan layanan AKTIF.
+
+    Args:
+        phone_number: Nomor HP pelanggan (sudah ada di memori sistem, dipakai untuk pesan balasan).
+        service_code: Kode layanan resmi yang akan dihentikan (misal: GOFIT3).
+        pin: PIN UNREG (angka) yang diekstrak dari SMS pelanggan.
+    """
+    if not pin:
+        return {
+            "status": "failed",
+            "error": "PIN UNREG belum ada. Minta pelanggan meneruskan (copy-paste) "
+                     "atau screenshot SMS dari 99790 terlebih dahulu.",
+        }
+
+    base_url = os.getenv("DCB_BASE_URL", "http://127.0.0.1:5000")
+    url = f"{base_url}/api/v1/unsub"
+
+    # Basic Auth (Postman collection: level collection & diulang di request;
+    # server mem-hardcode kredensialnya). Tanpa ini server menjawab 401.
+    auth = (
+        os.getenv("DCB_AUTH_USERNAME", "TSEL"),
+        os.getenv("DCB_AUTH_PASSWORD", "IN2bfkVD1L62rXtu"),
+    )
+
+    headers = {
+        "Content-Type": "application/json",
     }
+
+    # Postman collection "Unsub": body HANYA pin + code (tanpa field nomor HP —
+    # server mengenali langganan dari PIN & kode layanannya).
+    payload = {
+        "pin": pin,
+        "code": service_code,
+    }
+
+    try:
+        response = requests.post(url, json=payload, headers=headers,
+                                 auth=auth, timeout=10)
+        status_code = response.status_code
+
+        if status_code == 200:
+            data = response.json()
+            service_name = data.get("data", {}).get("service_name") or service_code
+            return {
+                "status": "success",
+                "message": (f"Layanan {service_name} berhasil dinonaktifkan "
+                            f"untuk nomor {phone_number}."),
+            }
+        elif status_code == 400:
+            try:
+                error_data = response.json()
+                if isinstance(error_data, list) and len(error_data) > 0:
+                    missing_field = error_data[0].get("FailedField", "Unknown")
+                    return {"status": "failed",
+                            "error": f"Permintaan tidak valid. Field bermasalah: {missing_field}"}
+            except Exception:
+                pass
+            return {"status": "failed",
+                    "error": "Format permintaan tidak valid (400). Pastikan pin dan code benar."}
+        elif status_code == 401:
+            return {"status": "failed",
+                    "error": "Akses ke sistem DCB ditolak (401 Unauthorized)."}
+        elif status_code == 404:
+            # Bisa service_not_found ATAU active_subscription_not_found —
+            # redaksi error selaras dengan aturan prompt: pelanggan TIDAK
+            # boleh dikira sempat berlangganan.
+            try:
+                msg = response.json().get("message", "")
+            except Exception:
+                msg = ""
+            if msg == "active_subscription_not_found":
+                return {"status": "failed",
+                        "error": (f"Tidak ada langganan aktif untuk layanan {service_code} — "
+                                  "layanan tersebut memang tidak aktif/tidak terdaftar, "
+                                  "sehingga tidak ada yang perlu dinonaktifkan.")}
+            return {"status": "failed",
+                    "error": f"Layanan dengan kode {service_code} tidak ditemukan di sistem (404)."}
+        else:
+            return {"status": "failed",
+                    "error": f"Sistem DCB mengembalikan error HTTP {status_code}"}
+
+    except requests.exceptions.RequestException as e:
+        return {"status": "failed",
+                "error": f"Gagal terhubung ke server DCB: {str(e)}"}
 
 
 # Batas round eksekusi tool per pesan masuk (cegah loop tak berujung).

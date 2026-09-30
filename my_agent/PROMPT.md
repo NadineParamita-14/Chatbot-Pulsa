@@ -1424,3 +1424,29 @@ Update the Gemini generation call. The `google-genai` SDK accepts a list of cont
 Please provide the updated `app.py` snippets focusing specifically on:
 1. The logic to detect and download the image from WAHA.
 2. The updated `client.models.generate_content(...)` call that handles both text-only and image-based inputs.
+
+# Context
+We are upgrading our WhatsApp CS Agent in `app.py`. The `unsubscribe_service(phone_number, service_code, pin)` tool is currently just a mock function returning a static success message. I need to replace it with a real HTTP POST request to the DCB production server.
+
+# Tasks
+1. **Read the API Specification:** Please read the gitignored Postman collection JSON file (or API spec file) located in this workspace to find the exact details for the "Unsub" API. I need you to identify:
+   - The exact endpoint path (e.g., `/api/v1/unsub`).
+   - The required JSON request body keys (e.g., does it use `msisdn` or `phone_number`? `code` or `service_code`?).
+
+2. **Update the Function:** Rewrite the `unsubscribe_service(phone_number, service_code, pin)` function in `app.py` to make the actual HTTP request.
+
+3. **Implementation Requirements:**
+   - Use the `requests` library.
+   - Construct the full URL using `os.getenv("DCB_BASE_URL")` + the identified endpoint path.
+   - Use HTTP Basic Authentication utilizing `os.getenv("DCB_AUTH_USERNAME")` and `os.getenv("DCB_AUTH_PASSWORD")`.
+   - Build the JSON payload dynamically mapping the function parameters to the keys specified in the Postman file.
+   - Set a `timeout=10` to prevent hanging requests.
+
+4. **Error Handling & LLM Return Value:**
+   - Wrap the request in a `try-except` block (`requests.exceptions.RequestException`).
+   - Parse the response. Return a clear dictionary or string that the Gemini LLM can easily interpret to formulate its natural language reply. 
+   - Example success: `{"status": "success", "message": "Layanan berhasil dinonaktifkan"}`
+   - Example failure: `{"status": "failed", "error": "Alasan error dari API"}`
+
+# Output
+Please provide the complete, updated `unsubscribe_service` Python function code to replace the old mock function in `app.py`.
