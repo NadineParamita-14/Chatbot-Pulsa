@@ -1773,6 +1773,7 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
                         print(f"[WEBHOOK:{agent_id}] Tool {fc.name} gagal: {e}")
                         result = {"status": "error", "message": str(e)}
                 print(f"[WEBHOOK:{agent_id}] Tool {fc.name}({fc.args or {}}) dipanggil.")
+                print(f"[WEBHOOK:{agent_id}] Hasil {fc.name}: {result}")
                 response_parts.append(
                     types.Part.from_function_response(name=fc.name, response=result)
                 )
