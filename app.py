@@ -18,6 +18,7 @@
 
 import base64
 import io
+import json
 import os
 import uuid
 
@@ -1507,8 +1508,11 @@ _redis_client = None
 # Hitungan pelanggaran kedaluwarsa 24 jam setelah strike PERTAMA
 TOXIC_COUNT_TTL_SECONDS = 24 * 60 * 60
 
-# Sentinel JSON yang dibalas AI saat mendeteksi bahasa toxic
-TOXIC_INTENT_RE = re.compile(r'\{\s*"intent"\s*:\s*"toxic"\s*\}', re.IGNORECASE)
+# Sentinel JSON yang dibalas AI saat mendeteksi bahasa toxic. Dicari di
+# MANA PUN teks balasan (bukan hanya objek {"intent": "toxic"} minimal)
+# agar menangkap juga JSON terstruktur versi baru ("intent": "TOXIC")
+# bila parsing terstruktur di _process_agent_message gagal berjalan.
+TOXIC_INTENT_RE = re.compile(r'"intent"\s*:\s*"toxic"', re.IGNORECASE)
 
 # Pesan per strike (>3 tak mungkin: key Redis dihapus di strike ke-3)
 TOXIC_STRIKE_MESSAGES = {
@@ -1592,6 +1596,53 @@ def _handle_toxic_strikes(agent_id: str, user: User, user_text: str,
     )
 
 
+def _format_cs_prompt(template: str, customer_name: str, phone_number: str) -> str:
+    """Isi placeholder {customer_name}/{phone_number} pada prompt CS Agent.
+
+    Prompt di database adalah template Python (.format) — struktur JSON di
+    dalamnya memakai kurung dobel {{ }} agar lolos formatter (lihat
+    CS_AGENT_SYSTEM_PROMPT di db_service.py). Fallback replace aman dipakai
+    bila template dari DB memuat kurung tunggal lain (mis. sisa aturan toxic
+    versi lama yang ditambahkan ensure_toxic_rule_in_prompts) sehingga
+    .format() melempar error — substitusi tetap berjalan tanpa memecah webhook.
+    """
+    try:
+        return template.format(customer_name=customer_name, phone_number=phone_number)
+    except (KeyError, ValueError, IndexError):
+        return (
+            template.replace("{customer_name}", customer_name)
+            .replace("{phone_number}", phone_number)
+        )
+
+
+def _parse_structured_reply(raw_reply: str) -> dict | None:
+    """Ambil objek JSON dari balasan model CS Agent (output wajib JSON only).
+
+    Toleran terhadap markdown fence (```json ... ```) dan teks lain di
+    sekitar objek: dicoba parse utuh dulu, lalu fallback ke substring
+    kurung kurawal terluas. None = bukan JSON terstruktur -> pemanggil
+    memakai teks mentah (degradasi anggun ke prompt versi lama).
+    """
+    if not raw_reply:
+        return None
+    text = raw_reply.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
+        text = re.sub(r"\s*```\s*$", "", text)
+    candidates = [text]
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
+        candidates.append(text[start:end + 1])
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(data, dict):
+            return data
+    return None
+
+
 def _process_agent_message(agent_id: str, user: User, user_text: str,
                            image_bytes: bytes | None = None,
                            reply_target: str = None,
@@ -1613,6 +1664,16 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
     base_prompt = cfg.system_prompt if cfg else "Kamu asisten virtual yang ramah dan membantu."
     temperature = cfg.temperature if cfg else 0.3
     model_name = (getattr(cfg, "model_name", None) or "gemini-2.5-flash")
+
+    # Konteks dinamis CS Agent: nama & nomor pelanggan diisi ke template
+    # prompt ({customer_name}/{phone_number}) supaya AI tidak menanyakan
+    # nomor dan bisa menyapa personal tanpa basa-basi.
+    if agent_id == "cs_agent":
+        base_prompt = _format_cs_prompt(
+            base_prompt,
+            customer_name=user.full_name or "Kak",
+            phone_number=user.platform_id,
+        )
 
     bot_token = None
     if user.channel != CHANNEL_WHATSAPP:
@@ -1734,9 +1795,31 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
         print(f"[WEBHOOK] Gagal memproses AI ({agent_id}): {e}")
         bot_reply = f"Maaf, terjadi kendala pada layanan: {e}"
 
-    # 3-Strike Rule: AI menandai bahasa toxic lewat JSON {"intent": "toxic"}.
-    # JSON mentah TIDAK diteruskan ke user — ganti dengan peringatan/blokir,
-    # lalu hentikan alur normal (tidak ada balasan AI & tidak kirim gambar).
+    # CS Agent: balasan wajib JSON terstruktur (intent/extracted_data/
+    # reply_message/confidence). JSON mentah TIDAK diteruskan ke user —
+    # hanya reply_message yang dikirim; intent TOXIC dialihkan ke
+    # 3-Strike Rule dan alur normal dihentikan. Bukan JSON valid (mis.
+    # instans masih memakai prompt versi lama) -> teks mentah dipakai.
+    if agent_id == "cs_agent":
+        structured = _parse_structured_reply(bot_reply)
+        if structured:
+            intent = str(structured.get("intent") or "").strip().upper()
+            if intent == "TOXIC":
+                _handle_toxic_strikes(agent_id, user, user_text, model_name,
+                                      reply_target=reply_target,
+                                      waha_session=waha_session)
+                return
+            reply_message = structured.get("reply_message")
+            if isinstance(reply_message, str) and reply_message.strip():
+                bot_reply = reply_message.strip()
+            else:
+                print(f"[WEBHOOK:{agent_id}] JSON valid tapi reply_message "
+                      f"kosong (intent={intent or '-'}) — teks mentah dipakai.")
+
+    # 3-Strike Rule (fallback regex): AI menandai bahasa toxic lewat
+    # {"intent": "toxic"} pada teks balasan. JSON mentah TIDAK diteruskan
+    # ke user — ganti dengan peringatan/blokir, lalu hentikan alur normal
+    # (tidak ada balasan AI & tidak kirim gambar).
     if TOXIC_INTENT_RE.search(bot_reply or ""):
         _handle_toxic_strikes(agent_id, user, user_text, model_name,
                               reply_target=reply_target,
