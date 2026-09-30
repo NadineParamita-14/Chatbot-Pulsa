@@ -1404,3 +1404,23 @@ Replace the current Step 2 in `ALUR KERJA DAN TOOLS` with this exact text (remem
    - Panggil tool `check_subscription_status(pin, code)`.
    - Jika terbukti AKTIF dan pelanggan ingin berhenti, LANGSUNG gunakan tool `unsubscribe_service(phone_number, service_code, pin)`.
    - Jika hasil cek status TIDAK AKTIF, balas dengan jelas bahwa: "Layanan tersebut memang tidak aktif/tidak terdaftar, sehingga tidak ada layanan yang perlu dinonaktifkan." JANGAN gunakan frasa "sudah tidak aktif" agar pelanggan tidak salah paham mengira mereka sempat berlangganan.
+
+# Context
+We are upgrading our WhatsApp CS Agent (built with Flask, WAHA webhook, and Gemini `google-genai` SDK). Currently, the bot ignores image messages sent by users because the webhook only parses text payloads. We want the bot to process screenshots (images) so Gemini can perform OCR and extract the `service_code` and `pin` directly from the image.
+
+# Tasks
+
+**1. Update WAHA Webhook Media Handling**
+Modify the `/webhook/whatsapp` route in `app.py` to detect if the incoming message contains media (specifically an image). 
+- In WAHA, this is usually indicated by `payload.get('hasMedia') == True` or `payload.get('type') == 'image'`.
+- You will need to implement the logic to retrieve/download this media file from the WAHA API (typically via WAHA's media retrieval endpoints, depending on how WAHA is configured, or by parsing the base64 data if WAHA sends it in the payload). 
+
+**2. Pass Image to Gemini (Multimodal)**
+Update the Gemini generation call. The `google-genai` SDK accepts a list of contents. 
+- If the user sends only text: `contents = [user_text]`
+- If the user sends an image: Convert the downloaded image into a format Gemini accepts (like `PIL.Image` or the appropriate Part object) and pass it along with the user's caption (if any): `contents = [image_object, user_caption]`.
+
+**3. Output the Code**
+Please provide the updated `app.py` snippets focusing specifically on:
+1. The logic to detect and download the image from WAHA.
+2. The updated `client.models.generate_content(...)` call that handles both text-only and image-based inputs.

@@ -1331,6 +1331,51 @@ def _send_telegram_photo(bot_token: str, chat_id: str, image_path) -> bool:
 
 
 # =====================================================================
+# PENERIMAAN MEDIA VIA WAHA (jalur masuk WhatsApp)
+# =====================================================================
+def _download_waha_media(msg: dict):
+    """Unduh media gambar dari payload WAHA menjadi bytes (AI multimodal).
+
+    Dua bentuk umum payload WAHA didukung:
+    1. `media.data` — berkas base64 langsung di webhook (data URI boleh).
+    2. `media.url`  — URL berkas di server WAHA; mutlak atau relatif
+       (diawali WAHA_BASE_URL), diunduh dengan X-Api-Key bila dikonfigurasi.
+    Bukan gambar (mimetype image/*) atau gagal unduh -> None. Best-effort:
+    kegagalan media tidak boleh menggagalkan webhook.
+    """
+    media = msg.get("media") or {}
+    mimetype = (media.get("mimetype") or "").lower()
+    if mimetype and not mimetype.startswith("image/"):
+        print(f"[WEBHOOK:whatsapp] Media dilewati (bukan gambar): {mimetype}")
+        return None
+
+    data = media.get("data")
+    if data:
+        try:
+            if isinstance(data, str) and data.strip().startswith("data:") and "," in data:
+                data = data.split(",", 1)[1]
+            return base64.b64decode(data)
+        except (ValueError, TypeError) as e:
+            print(f"[WEBHOOK:whatsapp] Gagal decode media base64: {e}")
+            return None
+
+    url = (media.get("url") or "").strip()
+    if url:
+        if url.startswith("/"):
+            url = f"{WAHA_BASE_URL}{url}"
+        try:
+            resp = requests.get(url, headers=_waha_headers(), timeout=30)
+            resp.raise_for_status()
+            return resp.content
+        except requests.RequestException as e:
+            print(f"[WEBHOOK:whatsapp] Gagal mengunduh media WAHA ({url}): {e}")
+            return None
+
+    print("[WEBHOOK:whatsapp] Payload media tanpa data/url — tidak bisa diunduh.")
+    return None
+
+
+# =====================================================================
 # PENGIRIMAN VIA WAHA (jalur keluar WhatsApp)
 # =====================================================================
 def _waha_headers() -> dict:
@@ -2000,11 +2045,21 @@ def whatsapp_webhook():
             print(f"[WEBHOOK:whatsapp/{agent_id}] {platform_id} diblokir -> update diabaikan (gatekeeper).")
             continue
 
-        # Media (gambar/dokumen) via WAHA belum masuk alur AI saat ini
+        # Media (gambar/screenshot SMS 99790) -> diunduh lalu diteruskan ke
+        # Gemini multimodal agar OCR bisa mengambil service_code + pin.
+        # Gagal unduh -> tetap diproses dengan teks/caption saja.
+        image_bytes = None
         if msg.get("hasMedia"):
-            print(f"[WEBHOOK:whatsapp/{agent_id}] Pesan media dari {raw_from} diabaikan (belum didukung).")
-            continue
-        if not user_text:
+            image_bytes = _download_waha_media(msg)
+            if image_bytes:
+                print(f"[WEBHOOK:whatsapp/{agent_id}] Gambar dari {raw_from} "
+                      f"terunduh ({len(image_bytes) // 1024} KB) — diteruskan "
+                      f"ke AI multimodal.")
+            else:
+                print(f"[WEBHOOK:whatsapp/{agent_id}] Media dari {raw_from} "
+                      f"tidak terunduh — diproses tanpa gambar.")
+
+        if not user_text and image_bytes is None:
             continue
 
         # Pra-cek 1: agent hasil routing dimatikan superadmin -> pesan offline
@@ -2031,6 +2086,7 @@ def whatsapp_webhook():
             print(f"[WEBHOOK:whatsapp/{agent_id}] Gagal mencatat user {platform_id} — update dilewati.")
             continue
         _process_agent_message(agent_id, user, user_text,
+                               image_bytes=image_bytes,
                                reply_target=raw_from, waha_session=session_name)
 
     return jsonify({"status": "ok"}), 200
