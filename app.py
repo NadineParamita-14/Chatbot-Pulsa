@@ -1167,6 +1167,10 @@ def check_subscription_status(pin: str, code: str) -> dict:
     Mengecek status aktif/inaktif dari layanan berlangganan pelanggan ke sistem DCB.
     Gunakan tool ini HANYA SETELAH berhasil mengekstrak 'pin' dan 'code' dari SMS pelanggan.
 
+    CRITICAL WARNING: DO NOT call this tool when the user first sends the SMS
+    proof (Stage 1). ONLY call this tool IF the user has explicitly stated that
+    manual unreg failed AND you are at Stage 2 or Stage 3.
+
     Args:
         pin: PIN verifikasi (angka) yang diekstrak dari pesan/SMS pelanggan.
         code: Kode layanan resmi (misal: HISTERIA, GOFIT3).
@@ -1229,6 +1233,10 @@ def unsubscribe_service(phone_number: str, service_code: str, pin: str = None) -
     pelanggan ke sistem DCB. Wajib dipanggil setelah pelanggan memberikan
     konfirmasi berupa copy-paste SMS atau screenshot dari 99790, dan HANYA
     jika hasil check_subscription_status menunjukkan layanan AKTIF.
+
+    CRITICAL WARNING: DO NOT call this tool unless the user has explicitly
+    confirmed they want your help to unreg (Stage 3). Never call this
+    proactively.
 
     Args:
         phone_number: Nomor HP pelanggan (sudah ada di memori sistem, dipakai untuk pesan balasan).

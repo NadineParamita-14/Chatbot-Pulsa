@@ -1646,3 +1646,19 @@ Output HANYA dalam format JSON murni persis seperti di bawah ini, tanpa markdown
     "confidence": 0.95
 }}
 """
+
+# Context
+Our Gemini model is aggressively calling the `check_subscription_status` tool as soon as it sees a PIN and service code in the user's first message, completely ignoring the "Stage 1 (Self-Service Education)" rule in the system prompt. 
+
+# Task
+We need to fix this by adding strict negative constraints to the **Tool Descriptions** themselves in `app.py`. LLMs prioritize tool descriptions when deciding whether to trigger a function call.
+
+Update the function definitions/declarations for `check_subscription_status` and `unsubscribe_service` in `app.py` (wherever the tools are defined for the Gemini client). Add a bold, strict warning in their `description` parameters.
+
+1. **For `check_subscription_status` description, append:**
+   "CRITICAL WARNING: DO NOT call this tool when the user first sends the SMS proof (Stage 1). ONLY call this tool IF the user has explicitly stated that manual unreg failed AND you are at Stage 2 or Stage 3."
+
+2. **For `unsubscribe_service` description, append:**
+   "CRITICAL WARNING: DO NOT call this tool unless the user has explicitly confirmed they want your help to unreg (Stage 3). Never call this proactively."
+
+Please provide the updated tool definition snippets for `app.py`.
