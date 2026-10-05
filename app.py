@@ -1493,19 +1493,31 @@ def _resolve_waha_session_agent(session_name: str):
 
     Ini jantung dynamic router WhatsApp: satu nomor (sesi) WA = satu agent,
     dan pemetaannya HIDUP DI DATABASE (dibuat lewat "Generate QR WA" di
-    Admin Panel), bukan lagi di env. Mengembalikan baris AgentConfig atau
-    None bila sesi tidak terdaftar.
+    Admin Panel), bukan lagi di env.
+
+    FALLBACK SEMENTARA (instruksi PROMPT.md): sesi yang tidak terdaftar di
+    peta dialihkan default ke cs_agent — bukan lagi dibuang — supaya alur
+    CS Agent bisa diuji meski peta sesi belum lengkap. Pemetaan eksplisit
+    di database tetap menang. Hapus blok fallback ini (dan kembalikan
+    `return None`) untuk mengaktifkan kembali perilaku drop.
     """
     session_name = (session_name or "").strip()
     if not session_name:
         return None
     db = get_db()
-    return (
+    cfg = (
         db.query(AgentConfig)
         .join(AgentWahaSession, AgentWahaSession.agent_id == AgentConfig.id)
         .filter(AgentWahaSession.session_name == session_name)
         .first()
     )
+    if cfg is not None:
+        return cfg
+    fallback = db.query(AgentConfig).filter_by(agent_id="cs_agent").first()
+    if fallback is not None:
+        print(f"[WEBHOOK:whatsapp] Sesi '{session_name}' tidak terdaftar di "
+              f"agent_waha_sessions -> fallback default ke cs_agent.")
+    return fallback
 
 
 def _agent_waha_session(agent_id: str):
@@ -1915,7 +1927,16 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
                 )
             response = chat_session.send_message(response_parts)
 
-        bot_reply = response.text if response.text else "Pesanan berhasil dicatat ke sistem."
+        # Fallback balasan kosong PER-AGENT: model bisa mengakhiri giliran
+        # pada function call (teks akhir kosong). Frasa "Pesanan berhasil
+        # dicatat" hanya relevan utk agent penjualan — dipakai utk cs_agent
+        # membuat admin menyangka pesan salah route ke bot pulsa.
+        if response.text:
+            bot_reply = response.text
+        elif agent_id == "cs_agent":
+            bot_reply = "Maaf Kak, ada kendala memproses permintaanmu. Coba kirim ulang pesannya ya."
+        else:
+            bot_reply = "Pesanan berhasil dicatat ke sistem."
 
         # Log pemakaian token balasan ini (menu "AI Usage"): akumulasi
         # metadata usage SELURUH round (teks + panggilan tool) dari SDK
@@ -2078,10 +2099,10 @@ def whatsapp_webhook():
 
     Routing: nama `session` dipetakan ke agent pemiliknya lewat tabel
     agent_waha_sessions (dibuat lewat "Generate QR WA") — BUKAN lagi env.
-    Sesi yang tidak terdaftar di-log lalu pesannya dibuang dengan tetap
-    membalas 200 agar WAHA tidak mengulang update yang sama. Balasan AI
-    dikirim atas nama sesi asal pesan (nomor pengirim konsisten), dan
-    chat_histories tercatat atas agent hasil routing.
+    Sesi yang tidak terdaftar di-fallback default ke cs_agent (sementara,
+    lihat _resolve_waha_session_agent). Balasan AI dikirim atas nama sesi
+    asal pesan (nomor pengirim konsisten), dan chat_histories tercatat
+    atas agent hasil routing.
     """
     payload = request.get_json(silent=True) or {}
 
@@ -2094,8 +2115,8 @@ def whatsapp_webhook():
     session_name = (payload.get("session") or "").strip()
     agent_cfg = _resolve_waha_session_agent(session_name)
     if agent_cfg is None:
-        print(f"[WEBHOOK:whatsapp] Sesi '{session_name or '(tanpa nama)'}' tidak "
-              f"terdaftar di agent_waha_sessions — pesan dibuang.")
+        print(f"[WEBHOOK:whatsapp] Sesi '{session_name or '(tanpa nama)'}' "
+              f"tidak bisa di-rute (agent cs_agent tidak ada di DB) — pesan dibuang.")
         return jsonify({"status": "ok"}), 200
     agent_id = agent_cfg.agent_id
 

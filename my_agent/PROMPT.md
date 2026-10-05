@@ -1662,3 +1662,13 @@ Update the function definitions/declarations for `check_subscription_status` and
    "CRITICAL WARNING: DO NOT call this tool unless the user has explicitly confirmed they want your help to unreg (Stage 3). Never call this proactively."
 
 Please provide the updated tool definition snippets for `app.py`.
+
+# Context
+I am trying to test my CS Agent (v7 prompt, ID: `cs_agent`), but the bot replied with "Pesanan berhasil dicatat ke sistem." This means the incoming WhatsApp message is being routed to the wrong agent (likely `pulsa_agent` or a default transaction bot) instead of `cs_agent`. I couldn't find the routing logic myself.
+
+# Tasks
+Please inspect `app.py`, specifically the WAHA webhook route (usually `/webhook/whatsapp` or similar) and the message handling pipeline.
+
+1. **Locate the Routing Logic:** Find where the code determines which `agent_id` or system prompt to use when a new message arrives.
+2. **Fix the Default Route:** Update the logic so that all general incoming messages default to `cs_agent`. If there is a dynamic router based on keywords or database states, temporarily force or prioritize `cs_agent` so I can test the CS workflow.
+3. **Output the Fix:** Provide the updated Python code snippets for the webhook route or the router function. Explain briefly what was causing it to hit the wrong agent and how you fixed it.
