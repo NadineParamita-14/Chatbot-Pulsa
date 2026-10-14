@@ -1239,10 +1239,26 @@ def unsubscribe_service(phone_number: str, service_code: str, pin: str = None) -
     proactively.
 
     Args:
-        phone_number: Nomor HP pelanggan (sudah ada di memori sistem, dipakai untuk pesan balasan).
+        phone_number: Nomor HP pelanggan — prioritas: nomor yang diekstrak dari teks chat pelanggan; format bebas (0812.../62812.../+62), akan dinormalkan otomatis ke awalan 62.
         service_code: Kode layanan resmi yang akan dihentikan (misal: GOFIT3).
         pin: PIN UNREG (boleh alfanumerik, misal: GbOwV9KA) yang diekstrak dari SMS pelanggan.
     """
+    # Failsafe format MSISDN (instruksi PROMPT.md): nomor dari teks chat
+    # bisa masuk sebagai '0812...', '+62812...', atau mengandung spasi/
+    # strip. Buang non-digit, lalu normalkan awalan 0 -> 62 sebelum nilai
+    # ini dipakai (pesan balasan & pemanggilan API DCB).
+    digits = re.sub(r"\D", "", str(phone_number or ""))
+    if digits.startswith("0"):
+        digits = "62" + digits[1:]
+    if not re.fullmatch(r"62\d{8,13}", digits):
+        return {
+            "status": "failed",
+            "error": (f"Nomor HP '{phone_number}' tidak valid setelah "
+                      "normalisasi. Minta pelanggan menyebutkan nomor "
+                      "Telkomsel yang benar (contoh format: 62812xxxxxxx)."),
+        }
+    phone_number = digits
+
     if not pin:
         return {
             "status": "failed",
@@ -1861,12 +1877,16 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
         )
     elif agent_id == "cs_agent":
         # Context injection DCB: platform_id user WhatsApp adalah nomor HP
-        # pelanggan — AI memanggil tools langsung tanpa menanyakan nomor.
+        # pelanggan — AI tidak perlu menanyakan nomor. Prioritas tetap
+        # nomor yang diekstrak dari teks chat (aturan MSISDN v10); nomor
+        # sistem dipakai hanya bila pelanggan tidak menyebutkan nomor lain.
         # Catatan ini TERSEMBUNYI dari user (tidak ikut tersimpan di
         # chat_histories maupun dikirim balik).
         outgoing_text = (
             f"[SYSTEM NOTE: Nomor HP pelanggan ini adalah {user.platform_id}. "
-            f"Gunakan nomor ini langsung jika memanggil tools.]\n\n{user_text}"
+            f"Gunakan nomor ini HANYA jika pelanggan tidak menyebutkan nomor "
+            f"lain di chat. Normalisasi awalan 0 menjadi 62 sebelum memanggil "
+            f"tools.]\n\n{user_text}"
         )
     else:
         outgoing_text = user_text

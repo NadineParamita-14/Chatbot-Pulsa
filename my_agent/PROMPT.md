@@ -1702,3 +1702,18 @@ Please inspect the tool execution loop in `app.py` (or where the function callin
    - "Jika tool mengembalikan pesan error atau gagal, Anda WAJIB memberitahu pengguna bahwa proses gagal sesuai dengan alasan dari sistem, JANGAN mengarang keberhasilan."
 
 Please output the modified code blocks for the execution loop and the prompt updates.
+
+# Context
+The Gemini CS Agent is now successfully executing the 3-Stage Workflow and reporting real API errors. However, the real DCB API is returning a "not registered/inactive" error even for valid subscriptions. This is likely a data formatting issue with the MSISDN (phone number) being passed to the `unsubscribe_service` tool.
+
+# Task
+Please update the tool definitions (function declarations) and the `CS_AGENT_PROMPT` to enforce strict MSISDN formatting before calling the API.
+
+1. **Prompt Update (`my_agent/db_service.py`):**
+   Add a data formatting rule: "Jika pengguna menyebutkan nomor telepon yang ingin di-unreg, Anda WAJIB mengubah format awalan '0' menjadi '62' (contoh: 0812... menjadi 62812...) sebelum memasukannya ke dalam argumen tool `unsubscribe_service` atau `check_subscription_status`."
+
+2. **Backend Execution Loop / Tool Definition (`app.py` or `tools.py`):**
+   - Ensure the tool actually prioritizes the phone number extracted by the LLM from the chat text over the default WhatsApp sender ID.
+   - Add a Python failsafe inside the `unsubscribe_service` function: `if phone_number.startswith('0'): phone_number = '62' + phone_number[1:]` to sanitize the input before hitting the real DCB API.
+
+Please provide the updated code snippets for these adjustments.

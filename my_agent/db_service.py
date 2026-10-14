@@ -699,6 +699,11 @@ CS_AGENT_PROMPT_V8_MARKER = "Aturan Ekstraksi PIN"
 # yang sudah memuat dibiarkan (idempoten).
 CS_AGENT_PROMPT_V9_MARKER = "KLAIM KEBERHASILAN PALSU"
 
+# Marker versi v10 (format MSISDN 0->62 + prioritas nomor ekstraksi chat):
+# aturan yang hanya ada mulai v10. Instans v0-v9 otomatis ditimpa ke v10
+# saat start; yang sudah memuat dibiarkan (idempoten).
+CS_AGENT_PROMPT_V10_MARKER = "FORMAT NOMOR HP (MSISDN)"
+
 CS_AGENT_SYSTEM_PROMPT = r"""<role>
 Anda adalah asisten Customer Service (CS) virtual untuk PT Pass Indonesia. Tugas Anda adalah merespons keluhan dan pertanyaan pelanggan terkait layanan digital (seperti GOFIT, HISTERIA, dan Digmagz) dengan gaya bahasa yang luwes, empatik, proaktif, dan natural (human-like). Anda dilarang keras membalas dengan gaya robotik atau memberikan template kaku yang berulang-ulang tanpa memperhatikan konteks.
 </role>
@@ -721,7 +726,8 @@ Anda adalah asisten Customer Service (CS) virtual untuk PT Pass Indonesia. Tugas
 6. **Aturan Ekstraksi PIN (ANTI-HALUSINASI):** PIN dapat berupa kombinasi huruf besar, huruf kecil, dan angka (alfanumerik) dengan panjang bervariasi (contoh nyata dari SMS live: "GbOwV9KA"). JANGAN PERNAH berasumsi bahwa PIN harus berupa angka murni. Terima dan gunakan string apa pun yang tertera di SMS pengguna secara apa adanya.
 7. **Tahap 1 Lock (SANGAT KETAT):** Saat pertama kali mengekstrak PIN dan Kode Layanan dari bukti SMS pengguna, ANDA DILARANG KERAS memvalidasi formatnya dan DILARANG KERAS memanggil tool apa pun. Anda WAJIB langsung merespons dengan Tahap 1 (Edukasi Mandiri).
 8. **KLAIM KEBERHASILAN PALSU DILARANG KERAS (SANGAT KETAT — TAHAP 3):** Anda TIDAK BOLEH sekalipun mengatakan layanan telah berhasil dinonaktifkan KECUALI Anda telah memanggil tool `unsubscribe_service` dan menerima respons balik "status": "success" dari sistem. Jika tool mengembalikan pesan error atau gagal, Anda WAJIB memberitahu pengguna bahwa proses gagal sesuai dengan alasan dari sistem — JANGAN mengarang keberhasilan.
-9. **DAFTAR KODE LAYANAN RESMI (KATALOG):**
+9. **FORMAT NOMOR HP (MSISDN) — WAJIB:** Jika pengguna menyebutkan nomor telepon yang ingin di-unreg, Anda WAJIB mengubah format awalan '0' menjadi '62' (contoh: 0812... menjadi 62812...) sebelum memasukannya ke dalam argumen tool `unsubscribe_service` atau `check_subscription_status`. Prioritas nomor: nomor yang DIEKSTRAK dari teks chat pelanggan lebih diutamakan; nomor di memori sistem dipakai HANYA jika pelanggan tidak menyebutkan nomor lain.
+10. **DAFTAR KODE LAYANAN RESMI (KATALOG):**
    DIGMAGZ, DIGMAGZ36, DIGMAGZ37, GOFIT, GOFIT1, GOFIT3, GOFIT5, HISTERIA, HISTERIA3, HISTERIA7, HISTERIA30, LEGA1, LEGA2, LEGA5, LEGA30, TUUTAP, TUUTAP1, TUUTAP3, TUUTAP7. (Jika kode di luar daftar ini, beritahu bahwa layanan di luar wewenang kami).
 </guidelines>
 
@@ -792,30 +798,31 @@ def seed_cs_agent():
 
 
 def ensure_cs_agent_prompt_upgrade():
-    """Angkat system prompt cs_agent lama ke versi v9 (anti-klaim sukses palsu).
+    """Angkat system prompt cs_agent lama ke versi v10 (format MSISDN).
 
     Dipanggil saat aplikasi start (app.py) SEBELUM ensure_toxic_rule_in_prompts().
     Template memuat placeholder {customer_name}/{phone_number} yang diisi
     per pesan oleh _format_cs_prompt (app.py), jadi JANGAN di-.format() di sini.
-    Pemicu = CS_AGENT_PROMPT_V9_MARKER (aturan "KLAIM KEBERHASILAN PALSU"
-    yang hanya ada mulai v9), sehingga semua instans lebih lama — v0 (CS
+    Pemicu = CS_AGENT_PROMPT_V10_MARKER (aturan "FORMAT NOMOR HP (MSISDN)"
+    yang hanya ada mulai v10), sehingga semua instans lebih lama — v0 (CS
     pulsa), v1 (DCB), v2 (katalog), v3 (JSON), v4 (redaksi), v5/v6 (unreg
-    2 tahap), v7 (unreg 3 tahap), v8 (anti-halusinasi PIN) — ikut tertimpa
-    ke v9. Aturan toxic yang sempat terhapus karena penimpaan dipasang
-    ulang otomatis oleh ensure_toxic_rule_in_prompts() yang dijalankan
-    sesudahnya. Prompt yang sudah memuat marker v9 dibiarkan (idempoten &
-    aman dipanggil berulang). Best-effort: kegagalan DB tidak boleh
-    menggagalkan start aplikasi.
+    2 tahap), v7 (unreg 3 tahap), v8 (anti-halusinasi PIN), v9 (anti-klaim
+    sukses palsu) — ikut tertimpa ke v10. Aturan toxic yang sempat
+    terhapus karena penimpaan dipasang ulang otomatis oleh
+    ensure_toxic_rule_in_prompts() yang dijalankan sesudahnya. Prompt yang
+    sudah memuat marker v10 dibiarkan (idempoten & aman dipanggil
+    berulang). Best-effort: kegagalan DB tidak boleh menggagalkan start
+    aplikasi.
     """
     session = SessionLocal()
     try:
         agent = session.query(AgentConfig).filter_by(agent_id="cs_agent").first()
-        if agent is None or CS_AGENT_PROMPT_V9_MARKER in (agent.system_prompt or ""):
+        if agent is None or CS_AGENT_PROMPT_V10_MARKER in (agent.system_prompt or ""):
             return
         agent.system_prompt = CS_AGENT_SYSTEM_PROMPT
         session.commit()
-        print("[OK] System prompt cs_agent di-upgrade ke versi anti-klaim "
-              "sukses palsu (v9).")
+        print("[OK] System prompt cs_agent di-upgrade ke versi format "
+              "MSISDN (v10).")
     except Exception as e:
         session.rollback()
         print(f"✗ Gagal upgrade system prompt cs_agent: {e}")
