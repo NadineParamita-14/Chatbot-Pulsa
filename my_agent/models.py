@@ -88,6 +88,14 @@ class AgentConfig(Base):
     # Nullable: agent Q&A murni boleh tanpa bot Telegram.
     telegram_token = Column(String(255), nullable=True)
 
+    # Konfigurasi koneksi API DCB (Direct Carrier Billing) milik agent —
+    # pindahan dari .env (DCB_BASE_URL / DCB_AUTH_USERNAME / DCB_AUTH_PASSWORD)
+    # supaya bisa diatur superadmin dari database tanpa deploy ulang.
+    # Nullable: agent non-DCB (mis. pulsa_agent) tidak memakainya.
+    dcb_base_url = Column(String(255), nullable=True)
+    dcb_auth_username = Column(String(100), nullable=True)
+    dcb_auth_password = Column(String(255), nullable=True)
+
     # Toggle aktif/nonaktif: False = bot agent ini tidak merespons user.
     is_active = Column(Boolean, default=True, nullable=False)
 
@@ -209,6 +217,50 @@ class AiUsageLog(Base):
 
     # Estimasi biaya dalam Rupiah (float cukup untuk skala log per pesan)
     total_cost = Column(Float, nullable=False, default=0.0)
+
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+
+
+# ==========================================
+# 7. Tabel Audit Log API DCB (Check-Status & Unsub)
+# Satu baris per HIT HTTP nyata ke server DCB (Direct Carrier Billing)
+# dari tool check_subscription_status / unsubscribe_service — sumber
+# audit: payload yang dikirim, status & isi respons, durasi, dan konteks
+# pelanggan pemicunya. Tabel baru: dibuat otomatis oleh init_db()
+# (Base.metadata.create_all) tanpa menyentuh tabel lain.
+# CATATAN: request_payload memuat PIN pelanggan — internal/superadmin.
+# ==========================================
+class DcbApiLog(Base):
+    __tablename__ = "dcb_api_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Nama tool pemicu: 'check_subscription_status' / 'unsubscribe_service'
+    tool_name = Column(String(64), nullable=False, index=True)
+
+    # URL lengkap yang di-hit + payload JSON persis yang dikirim
+    endpoint = Column(String(255), nullable=False)
+    request_payload = Column(Text, nullable=True)
+
+    # Hasil HTTP: http_status NULL artinya request tidak pernah sampai
+    # (timeout / koneksi gagal) — alasan lengkapnya di error_message.
+    http_status = Column(Integer, nullable=True)
+    response_body = Column(Text, nullable=True)  # dipotong 2000 karakter
+    duration_ms = Column(Integer, nullable=True)
+
+    success = Column(Boolean, nullable=False, default=False)
+    error_message = Column(Text, nullable=True)
+
+    # Konteks webhook pemicu (siapa pelanggan & agent-nya) — diisi dari
+    # contextvar yang dipasang _process_agent_message, bukan argumen tool,
+    # agar tool tetap murni fungsi HTTP.
+    agent_id = Column(String(50), nullable=True, index=True)
+    platform_id = Column(String(64), nullable=True, index=True)
+    channel = Column(String(20), nullable=True)
 
     created_at = Column(
         DateTime(timezone=True),
@@ -549,8 +601,26 @@ def init_db():
             ALTER TABLE agent_configs
                 ADD COLUMN IF NOT EXISTS name VARCHAR(100),
                 ADD COLUMN IF NOT EXISTS telegram_token VARCHAR(255),
-                ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+                ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                ADD COLUMN IF NOT EXISTS dcb_base_url VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS dcb_auth_username VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS dcb_auth_password VARCHAR(255);
         """))
+        # Backfill SEKALI (idempoten): nilai DCB_* dari .env lama dipindahkan
+        # ke kolom agent bila kolomnya masih kosong — setelah ini sumber
+        # tunggal konfigurasi DCB adalah tabel agent_configs, bukan .env.
+        conn.execute(text("""
+            UPDATE agent_configs
+               SET dcb_base_url      = COALESCE(dcb_base_url, :base_url),
+                   dcb_auth_username = COALESCE(dcb_auth_username, :username),
+                   dcb_auth_password = COALESCE(dcb_auth_password, :password)
+             WHERE agent_id = 'cs_agent'
+               AND (:base_url IS NOT NULL OR :username IS NOT NULL OR :password IS NOT NULL)
+        """), {
+            "base_url": os.getenv("DCB_BASE_URL"),
+            "username": os.getenv("DCB_AUTH_USERNAME"),
+            "password": os.getenv("DCB_AUTH_PASSWORD"),
+        })
         # Migrasi 3-Strike Rule: kolom blokir permanen user (default False).
         # Idempoten — IF NOT EXISTS aman dijalankan berulang kali.
         conn.execute(text("""

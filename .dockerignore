@@ -31,3 +31,6 @@ uploads/
 # Docker itu sendiri (tidak perlu di dalam image)
 Dockerfile
 .dockerignore
+
+# Log audit runtime (memuat PIN pelanggan - jangan masuk image)
+logs/

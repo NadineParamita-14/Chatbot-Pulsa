@@ -1,6 +1,7 @@
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from sqlalchemy import distinct, func
 from sqlalchemy.exc import IntegrityError
 from models import (
@@ -8,6 +9,7 @@ from models import (
     AgentConfig,
     AiUsageLog,
     ChatHistory,
+    DcbApiLog,
     Document,
     RagDocument,
     User,
@@ -1136,6 +1138,148 @@ def log_ai_usage(agent_id: str, platform_id: str, model_name: str,
     except Exception as e:
         session.rollback()
         print(f"[AI USAGE] Gagal mencatat pemakaian token: {e}")
+    finally:
+        session.close()
+
+
+# Folder file log audit DCB — rotasi harian, nama file = tanggal lokal
+# (YYYY-MM-DD.log); tiap baris di dalamnya memuat date-time lengkap.
+# Lokasi <root proyek>/logs/dcb/ (root = induk folder my_agent) dan
+# masuk .gitignore/.dockerignore karena isinya memuat PIN pelanggan.
+DCB_LOG_DIR = Path(__file__).resolve().parent.parent / "logs" / "dcb"
+
+
+def _write_dcb_log_file(entry: dict) -> None:
+    """Tambah SATU baris JSON ke file log harian logs/dcb/YYYY-MM-DD.log.
+
+    Nama file mengikuti TANGGAL lokal hari ini (rotasi harian — trail
+    audit per hari tetap satu file walau server restart berkali-kali),
+    sedangkan date-time lengkap tercantum di dalam tiap baris (JSONL —
+    satu baris JSON per hit, mudah dibaca & di-parse ulang). Best-effort:
+    kegagalan tulis file tidak boleh menggagalkan tool — cukup dicetak
+    ke konsol.
+    """
+    try:
+        DCB_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        file_path = DCB_LOG_DIR / f"{datetime.now().strftime('%Y-%m-%d')}.log"
+        with open(file_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError as e:
+        print(f"[DCB AUDIT] Gagal menulis file log: {e}")
+
+
+def log_dcb_api_call(tool_name: str, endpoint: str, request_payload,
+                     http_status, response_body: str, duration_ms: int,
+                     success: bool, error_message: str = None,
+                     agent_id: str = None, platform_id: str = None,
+                     channel: str = None) -> None:
+    """Catat SATU hit HTTP nyata ke API DCB (audit) ke DUA tempat:
+
+    1. File harian  : logs/dcb/YYYY-MM-DD.log (JSONL, nama file = tanggal)
+    2. Tabel DB     : dcb_api_logs (bisa di-query / endpoint admin)
+
+    Dipanggil helper _dcb_post (app.py) untuk setiap panggilan
+    check-status/unsub — sukses maupun gagal (timeout/koneksi ditolak
+    tercatat dengan http_status NULL). Best-effort: kegagalan logging
+    TIDAK boleh menggagalkan jalannya tool, exception ditelan setelah
+    dicetak ke konsol.
+    """
+    try:
+        payload_str = json.dumps(request_payload, ensure_ascii=False) \
+            if request_payload is not None else None
+    except (TypeError, ValueError):
+        payload_str = str(request_payload)
+
+    # 1. File harian dulu (independen dari DB — tetap terekam walau DB down)
+    _write_dcb_log_file({
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "tool_name": tool_name,
+        "endpoint": endpoint,
+        "request_payload": request_payload,
+        "http_status": http_status,
+        "response_body": (response_body or "")[:2000] or None,
+        "duration_ms": duration_ms,
+        "success": bool(success),
+        "error_message": error_message,
+        "agent_id": agent_id,
+        "platform_id": platform_id,
+        "channel": channel,
+    })
+
+    # 2. Tabel DB
+    session = SessionLocal()
+    try:
+        session.add(DcbApiLog(
+            tool_name=tool_name,
+            endpoint=endpoint,
+            request_payload=payload_str,
+            http_status=int(http_status) if http_status is not None else None,
+            response_body=(response_body or "")[:2000] or None,
+            duration_ms=int(duration_ms) if duration_ms is not None else None,
+            success=bool(success),
+            error_message=error_message,
+            agent_id=agent_id,
+            platform_id=platform_id,
+            channel=channel,
+        ))
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        print(f"[DCB AUDIT] Gagal mencatat log API: {e}")
+    finally:
+        session.close()
+
+
+def get_dcb_config(agent_id: str = "cs_agent") -> dict:
+    """Baca konfigurasi koneksi API DCB milik agent dari agent_configs.
+
+    Sumber tunggal konfigurasi DCB kini kolom dcb_base_url /
+    dcb_auth_username / dcb_auth_password (pindahan dari .env — instruksi
+    PROMPT.md). Return dict berisi None untuk nilai yang belum diisi
+    superadmin; pemanggil (_dcb_post) wajib menolak request bila tak
+    lengkap alih-alih diam-diam memakai default.
+    """
+    session = SessionLocal()
+    try:
+        agent = session.query(AgentConfig).filter_by(agent_id=agent_id).first()
+        if agent is None:
+            return {"base_url": None, "username": None, "password": None}
+        return {
+            "base_url": (agent.dcb_base_url or "").strip() or None,
+            "username": (agent.dcb_auth_username or "").strip() or None,
+            "password": (agent.dcb_auth_password or "").strip() or None,
+        }
+    finally:
+        session.close()
+
+
+def get_dcb_api_logs(limit: int = 100) -> list:
+    """Log audit API DCB terbaru (DESC) untuk endpoint admin."""
+    session = SessionLocal()
+    try:
+        rows = (session.query(DcbApiLog)
+                .order_by(DcbApiLog.created_at.desc(), DcbApiLog.id.desc())
+                .limit(int(limit))
+                .all())
+        return [
+            {
+                "id": r.id,
+                "tool_name": r.tool_name,
+                "endpoint": r.endpoint,
+                "request_payload": r.request_payload,
+                "http_status": r.http_status,
+                "response_body": r.response_body,
+                "duration_ms": r.duration_ms,
+                "success": r.success,
+                "error_message": r.error_message,
+                "agent_id": r.agent_id,
+                "platform_id": r.platform_id,
+                "channel": r.channel,
+                "created_at": r.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                if r.created_at else None,
+            }
+            for r in rows
+        ]
     finally:
         session.close()
 

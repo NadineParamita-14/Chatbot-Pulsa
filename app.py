@@ -20,6 +20,7 @@ import base64
 import io
 import json
 import os
+import time
 import uuid
 
 from dotenv import load_dotenv
@@ -27,6 +28,7 @@ load_dotenv()
 
 import re
 import sys
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from functools import wraps
@@ -80,6 +82,8 @@ from db_service import (  # noqa: E402
     get_agent_telegram_token,
     get_ai_usage_logs,
     get_dashboard_charts,
+    get_dcb_api_logs,
+    get_dcb_config,
     get_ai_usage_summary,
     get_all_rag_knowledge,
     get_chatted_users,
@@ -88,6 +92,7 @@ from db_service import (  # noqa: E402
     get_or_create_user,
     get_products_json_string,
     log_ai_usage,
+    log_dcb_api_call,
     parse_waha_sender,
     is_agent_active,
     is_user_blocked,
@@ -370,6 +375,11 @@ def serialize_agent_config(cfg: AgentConfig) -> dict:
         "model_name": cfg.model_name,
         "system_prompt": cfg.system_prompt,
         "temperature": cfg.temperature,
+        # Konfigurasi DCB (pindahan dari .env) — superadmin mengaturnya
+        # lewat form Agent Config; dipakai tool check-status/unsub.
+        "dcb_base_url": cfg.dcb_base_url,
+        "dcb_auth_username": cfg.dcb_auth_username,
+        "dcb_auth_password": cfg.dcb_auth_password,
         "created_at": _iso(cfg.created_at),
         "updated_at": _iso(cfg.updated_at),
     }
@@ -1176,6 +1186,73 @@ def _normalize_msisdn(raw) -> str | None:
     return digits if re.fullmatch(r"62\d{8,13}", digits) else None
 
 
+# Konteks audit DCB: _process_agent_message memasang identitas pemicu
+# (agent + pelanggan) sebelum LLM dipanggil; _dcb_post membacanya saat
+# menulis baris audit. ContextVar aman utk request konkuren (bukan
+# global biasa yang bisa tertukar antar-thread).
+_dcb_audit_ctx: ContextVar = ContextVar("dcb_audit_ctx", default=None)
+
+
+def _dcb_post(tool_name: str, path: str, payload: dict, timeout: int = 10):
+    """SATU-SATUNYA pintu hit HTTP ke API DCB + audit log otomatis.
+
+    Semua panggilan check-status/unsub WAJIB lewat sini agar setiap hit
+    tercatat di tabel dcb_api_logs: payload persis yang dikirim, status &
+    isi respons mentah, durasi, dan konteks pelanggan pemicunya (dari
+    _dcb_audit_ctx). Konfigurasi koneksi (base URL + kredensial basic
+    auth) dibaca dari kolom dcb_* tabel agent_configs milik agent
+    pemicu — BUKAN lagi dari .env. Return (response, error): error None
+    bila HTTP selesai (status apa pun — termasuk 4xx/5xx, itu bukan
+    error koneksi); string pesan bila konfigurasi tak lengkap atau
+    request gagal total (timeout/koneksi) dan response berupa None.
+    """
+    ctx = _dcb_audit_ctx.get() or {}
+
+    # Konfigurasi dari database (kolom dcb_* agent_configs). Tolak dengan
+    # pesan jelas bila belum diisi superadmin — JANGAN diam-diam memakai
+    # default env lagi.
+    dcb = get_dcb_config(ctx.get("agent_id") or "cs_agent")
+    if not dcb["base_url"] or not dcb["username"] or not dcb["password"]:
+        return None, (
+            "Konfigurasi API DCB belum lengkap. Lengkapi kolom dcb_base_url, "
+            f"dcb_auth_username, dan dcb_auth_password untuk agent "
+            f"'{ctx.get('agent_id') or 'cs_agent'}' di Admin Panel."
+        )
+    url = f"{dcb['base_url'].rstrip('/')}{path}"
+
+    started = time.perf_counter()
+    try:
+        # Basic Auth dari database (nilai Postman collection lama kini di
+        # kolom agent). Tanpa ini server menjawab 401.
+        response = requests.post(
+            url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            auth=(dcb["username"], dcb["password"]),
+            timeout=timeout,
+        )
+    except Exception as e:
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        log_dcb_api_call(
+            tool_name=tool_name, endpoint=url, request_payload=payload,
+            http_status=None, response_body=None, duration_ms=duration_ms,
+            success=False, error_message=str(e),
+            agent_id=ctx.get("agent_id"), platform_id=ctx.get("platform_id"),
+            channel=ctx.get("channel"),
+        )
+        return None, str(e)
+
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    log_dcb_api_call(
+        tool_name=tool_name, endpoint=url, request_payload=payload,
+        http_status=response.status_code, response_body=response.text,
+        duration_ms=duration_ms, success=(response.status_code == 200),
+        agent_id=ctx.get("agent_id"), platform_id=ctx.get("platform_id"),
+        channel=ctx.get("channel"),
+    )
+    return response, None
+
+
 def check_subscription_status(pin: str, code: str) -> dict:
     """
     Mengecek status aktif/inaktif dari layanan berlangganan pelanggan ke sistem DCB.
@@ -1190,56 +1267,42 @@ def check_subscription_status(pin: str, code: str) -> dict:
         pin: PIN verifikasi (boleh alfanumerik, misal: GbOwV9KA) yang diekstrak dari pesan/SMS pelanggan.
         code: Kode layanan resmi (misal: HISTERIA, GOFIT3).
     """
-    base_url = os.getenv("DCB_BASE_URL", "http://127.0.0.1:5000")
-    url = f"{base_url}/api/v1/check-status"
-
-    # Basic Auth (Postman collection: level collection & diulang di request;
-    # server mem-hardcode kredensialnya). Tanpa ini server menjawab 401.
-    auth = (
-        os.getenv("DCB_AUTH_USERNAME", "TSEL"),
-        os.getenv("DCB_AUTH_PASSWORD", "IN2bfkVD1L62rXtu"),
-    )
-
-    headers = {
-        "Content-Type": "application/json",
-    }
-
     payload = {
         "pin": pin,
         "code": code
     }
 
-    try:
-        response = requests.post(url, json=payload, headers=headers,
-                                 auth=auth, timeout=10)
-        status_code = response.status_code
+    # Hit HTTP + audit log lewat pintu tunggal _dcb_post — base URL &
+    # kredensial dibaca dari kolom dcb_* agent_configs di sana.
+    response, conn_err = _dcb_post(
+        "check_subscription_status", "/api/v1/check-status", payload)
+    if conn_err is not None:
+        return {"status": "error", "message": f"Gagal terhubung ke server DCB: {conn_err}"}
 
-        if status_code == 200:
-            data = response.json()
-            return {
-                "status": "success",
-                "is_active": data.get("data", {}).get("is_active"),
-                "service_code": data.get("data", {}).get("service_code"),
-                "message": f"Layanan berstatus {data.get('message')}"
-            }
-        elif status_code == 400:
-            try:
-                error_data = response.json()
-                if isinstance(error_data, list) and len(error_data) > 0:
-                    missing_field = error_data[0].get("FailedField", "Unknown")
-                    return {"status": "error", "message": f"Data tidak lengkap. Field bermasalah: {missing_field}"}
-            except Exception:
-                pass
-            return {"status": "error", "message": "Format permintaan tidak valid (400). Pastikan pin dan code benar."}
-        elif status_code == 401:
-            return {"status": "error", "message": "Akses ke sistem DCB ditolak (401 Unauthorized)."}
-        elif status_code == 404:
-            return {"status": "error", "message": f"Layanan dengan kode {code} tidak ditemukan di sistem (404)."}
-        else:
-            return {"status": "error", "message": f"Sistem DCB mengembalikan error HTTP {status_code}"}
-
-    except Exception as e:
-        return {"status": "error", "message": f"Gagal terhubung ke server DCB: {str(e)}"}
+    status_code = response.status_code
+    if status_code == 200:
+        data = response.json()
+        return {
+            "status": "success",
+            "is_active": data.get("data", {}).get("is_active"),
+            "service_code": data.get("data", {}).get("service_code"),
+            "message": f"Layanan berstatus {data.get('message')}"
+        }
+    elif status_code == 400:
+        try:
+            error_data = response.json()
+            if isinstance(error_data, list) and len(error_data) > 0:
+                missing_field = error_data[0].get("FailedField", "Unknown")
+                return {"status": "error", "message": f"Data tidak lengkap. Field bermasalah: {missing_field}"}
+        except Exception:
+            pass
+        return {"status": "error", "message": "Format permintaan tidak valid (400). Pastikan pin dan code benar."}
+    elif status_code == 401:
+        return {"status": "error", "message": "Akses ke sistem DCB ditolak (401 Unauthorized)."}
+    elif status_code == 404:
+        return {"status": "error", "message": f"Layanan dengan kode {code} tidak ditemukan di sistem (404)."}
+    else:
+        return {"status": "error", "message": f"Sistem DCB mengembalikan error HTTP {status_code}"}
 
 
 def unsubscribe_service(phone_number: str, service_code: str, pin: str = None) -> dict:
@@ -1278,20 +1341,6 @@ def unsubscribe_service(phone_number: str, service_code: str, pin: str = None) -
                      "atau screenshot SMS dari 99790 terlebih dahulu.",
         }
 
-    base_url = os.getenv("DCB_BASE_URL", "http://127.0.0.1:5000")
-    url = f"{base_url}/api/v1/unsub"
-
-    # Basic Auth (Postman collection: level collection & diulang di request;
-    # server mem-hardcode kredensialnya). Tanpa ini server menjawab 401.
-    auth = (
-        os.getenv("DCB_AUTH_USERNAME", "TSEL"),
-        os.getenv("DCB_AUTH_PASSWORD", "IN2bfkVD1L62rXtu"),
-    )
-
-    headers = {
-        "Content-Type": "application/json",
-    }
-
     # Postman collection "Unsub": body HANYA pin + code (tanpa field nomor HP —
     # server mengenali langganan dari PIN & kode layanannya).
     payload = {
@@ -1299,55 +1348,54 @@ def unsubscribe_service(phone_number: str, service_code: str, pin: str = None) -
         "code": service_code,
     }
 
-    try:
-        response = requests.post(url, json=payload, headers=headers,
-                                 auth=auth, timeout=10)
-        status_code = response.status_code
-
-        if status_code == 200:
-            data = response.json()
-            service_name = data.get("data", {}).get("service_name") or service_code
-            return {
-                "status": "success",
-                "message": (f"Layanan {service_name} berhasil dinonaktifkan "
-                            f"untuk nomor {phone_number}."),
-            }
-        elif status_code == 400:
-            try:
-                error_data = response.json()
-                if isinstance(error_data, list) and len(error_data) > 0:
-                    missing_field = error_data[0].get("FailedField", "Unknown")
-                    return {"status": "failed",
-                            "error": f"Permintaan tidak valid. Field bermasalah: {missing_field}"}
-            except Exception:
-                pass
-            return {"status": "failed",
-                    "error": "Format permintaan tidak valid (400). Pastikan pin dan code benar."}
-        elif status_code == 401:
-            return {"status": "failed",
-                    "error": "Akses ke sistem DCB ditolak (401 Unauthorized)."}
-        elif status_code == 404:
-            # Bisa service_not_found ATAU active_subscription_not_found —
-            # redaksi error selaras dengan aturan prompt: pelanggan TIDAK
-            # boleh dikira sempat berlangganan.
-            try:
-                msg = response.json().get("message", "")
-            except Exception:
-                msg = ""
-            if msg == "active_subscription_not_found":
-                return {"status": "failed",
-                        "error": (f"Tidak ada langganan aktif untuk layanan {service_code} — "
-                                  "layanan tersebut memang tidak aktif/tidak terdaftar, "
-                                  "sehingga tidak ada yang perlu dinonaktifkan.")}
-            return {"status": "failed",
-                    "error": f"Layanan dengan kode {service_code} tidak ditemukan di sistem (404)."}
-        else:
-            return {"status": "failed",
-                    "error": f"Sistem DCB mengembalikan error HTTP {status_code}"}
-
-    except requests.exceptions.RequestException as e:
+    # Hit HTTP + audit log lewat pintu tunggal _dcb_post — base URL &
+    # kredensial dibaca dari kolom dcb_* agent_configs di sana.
+    response, conn_err = _dcb_post("unsubscribe_service", "/api/v1/unsub", payload)
+    if conn_err is not None:
         return {"status": "failed",
-                "error": f"Gagal terhubung ke server DCB: {str(e)}"}
+                "error": f"Gagal terhubung ke server DCB: {conn_err}"}
+
+    status_code = response.status_code
+    if status_code == 200:
+        data = response.json()
+        service_name = data.get("data", {}).get("service_name") or service_code
+        return {
+            "status": "success",
+            "message": (f"Layanan {service_name} berhasil dinonaktifkan "
+                        f"untuk nomor {phone_number}."),
+        }
+    elif status_code == 400:
+        try:
+            error_data = response.json()
+            if isinstance(error_data, list) and len(error_data) > 0:
+                missing_field = error_data[0].get("FailedField", "Unknown")
+                return {"status": "failed",
+                        "error": f"Permintaan tidak valid. Field bermasalah: {missing_field}"}
+        except Exception:
+            pass
+        return {"status": "failed",
+                "error": "Format permintaan tidak valid (400). Pastikan pin dan code benar."}
+    elif status_code == 401:
+        return {"status": "failed",
+                "error": "Akses ke sistem DCB ditolak (401 Unauthorized)."}
+    elif status_code == 404:
+        # Bisa service_not_found ATAU active_subscription_not_found —
+        # redaksi error selaras dengan aturan prompt: pelanggan TIDAK
+        # boleh dikira sempat berlangganan.
+        try:
+            msg = response.json().get("message", "")
+        except Exception:
+            msg = ""
+        if msg == "active_subscription_not_found":
+            return {"status": "failed",
+                    "error": (f"Tidak ada langganan aktif untuk layanan {service_code} — "
+                              "layanan tersebut memang tidak aktif/tidak terdaftar, "
+                              "sehingga tidak ada yang perlu dinonaktifkan.")}
+        return {"status": "failed",
+                "error": f"Layanan dengan kode {service_code} tidak ditemukan di sistem (404)."}
+    else:
+        return {"status": "failed",
+                "error": f"Sistem DCB mengembalikan error HTTP {status_code}"}
 
 
 # Guardrail anti-klaim sukses palsu (v9): frasa klaim unreg berhasil di
@@ -1794,29 +1842,31 @@ def _handle_toxic_strikes(agent_id: str, user: User, user_text: str,
 def _format_cs_prompt(template: str, customer_name: str, phone_number: str) -> str:
     """Isi placeholder {customer_name}/{phone_number} pada prompt CS Agent.
 
-    Prompt di database adalah template Python (.format) — struktur JSON di
-    dalamnya memakai kurung dobel {{ }} agar lolos formatter (lihat
-    CS_AGENT_SYSTEM_PROMPT di db_service.py). Fallback replace aman dipakai
-    bila template dari DB memuat kurung tunggal lain (mis. sisa aturan toxic
-    versi lama yang ditambahkan ensure_toxic_rule_in_prompts) sehingga
-    .format() melempar error — substitusi tetap berjalan tanpa memecah webhook.
+    SELALU lewat replace (bukan .format()): prompt di DB adalah template
+    .format (envelope JSON memakai kurung dobel {{ }}), TAPI aturan toxic
+    yang ditambahkan ensure_toxic_rule_in_prompts menyisipkan kurung
+    TUNGGAL {"intent": "toxic"} di ujung — membuat .format() selalu
+    melempar KeyError. Fallback lama membiarkan {{ }} tetap dobel sehingga
+    model meniru contoh berkurung dobel dan meng-output JSON {{...}} yang
+    gagal diparse lalu TERKIRIM MENTAH ke pelanggan (bug screenshot).
+    Setelah substitusi, kurung dobel dilipat jadi tunggal sehingga model
+    SELALU melihat contoh JSON dengan kurung yang benar.
     """
-    try:
-        return template.format(customer_name=customer_name, phone_number=phone_number)
-    except (KeyError, ValueError, IndexError):
-        return (
-            template.replace("{customer_name}", customer_name)
-            .replace("{phone_number}", phone_number)
-        )
+    prompt = (
+        template.replace("{customer_name}", customer_name)
+        .replace("{phone_number}", phone_number)
+    )
+    return prompt.replace("{{", "{").replace("}}", "}")
 
 
 def _parse_structured_reply(raw_reply: str) -> dict | None:
     """Ambil objek JSON dari balasan model CS Agent (output wajib JSON only).
 
-    Toleran terhadap markdown fence (```json ... ```) dan teks lain di
-    sekitar objek: dicoba parse utuh dulu, lalu fallback ke substring
-    kurung kurawal terluas. None = bukan JSON terstruktur -> pemanggil
-    memakai teks mentah (degradasi anggun ke prompt versi lama).
+    Toleran terhadap markdown fence (```json ... ```), teks lain di
+    sekitar objek, dan KURUNG DOBEL {{ }} (model kadang meniru gaya
+    template .format — kandidat dilipat dulu sebelum di-parse). None =
+    benar-benar bukan JSON terstruktur -> pemanggil memakai fallback
+    ekstraksi regex, bukan mengirim teks mentah ke user.
     """
     if not raw_reply:
         return None
@@ -1828,6 +1878,10 @@ def _parse_structured_reply(raw_reply: str) -> dict | None:
     start, end = text.find("{"), text.rfind("}")
     if start != -1 and end > start:
         candidates.append(text[start:end + 1])
+        # Varian kurung dobel -> tunggal ({{"intent":...}} gaya template)
+        collapsed = text[start:end + 1].replace("{{", "{").replace("}}", "}")
+        candidates.append(collapsed)
+    candidates.append(text.replace("{{", "{").replace("}}", "}"))
     for candidate in candidates:
         try:
             data = json.loads(candidate)
@@ -1836,6 +1890,23 @@ def _parse_structured_reply(raw_reply: str) -> dict | None:
         if isinstance(data, dict):
             return data
     return None
+
+
+def _extract_reply_message_fallback(raw: str) -> str | None:
+    """Jaring pengaman terakhir: ambil nilai 'reply_message' lewat regex
+    dari teks yang tetap gagal diparse JSON (mis. kurung tidak seimbang).
+    None = benar-benar tidak ada pesan yang bisa diselamatkan."""
+    if not raw:
+        return None
+    m = re.search(r'"reply_message"\s*:\s*"((?:[^"\\]|\\.)*)"', raw)
+    if not m:
+        return None
+    try:
+        # Unescape \n, \", dll. dengan mengbungkus hasil tangkapan sebagai
+        # string JSON tunggal.
+        return json.loads('"' + m.group(1) + '"')
+    except (json.JSONDecodeError, ValueError):
+        return m.group(1)
 
 
 def _process_agent_message(agent_id: str, user: User, user_text: str,
@@ -1854,6 +1925,14 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
     sesi yang sama sehingga nomor pengirimnya konsisten.
     """
     from google.genai import types
+
+    # Pasang konteks audit DCB utk pesan ini: setiap hit check-status/unsub
+    # lewat _dcb_post akan mencatat siapa pelanggan & agent pemicunya.
+    _dcb_audit_ctx.set({
+        "agent_id": agent_id,
+        "platform_id": user.platform_id,
+        "channel": user.channel,
+    })
 
     cfg = get_agent_config(agent_id)
     base_prompt = cfg.system_prompt if cfg else "Kamu asisten virtual yang ramah dan membantu."
@@ -2051,8 +2130,28 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
             if isinstance(reply_message, str) and reply_message.strip():
                 bot_reply = reply_message.strip()
             else:
+                # JSON valid tapi reply_message kosong — JANGAN kirim JSON
+                # mentah: selamatkan via regex, terakhir pesan generik.
                 print(f"[WEBHOOK:{agent_id}] JSON valid tapi reply_message "
-                      f"kosong (intent={intent or '-'}) — teks mentah dipakai.")
+                      f"kosong (intent={intent or '-'}) — fallback regex.")
+                bot_reply = (_extract_reply_message_fallback(bot_reply)
+                             or "Maaf Kak, ada kendala memproses permintaanmu. "
+                                "Coba kirim ulang pesannya ya.")
+        else:
+            # Parse total gagal — anti-bocor-JSON: selamatkan reply_message
+            # via regex; bila teks tampak JSON tapi tak terselamatkan, ganti
+            # pesan generik. Hanya teks NON-JSON (degradasi prompt lama)
+            # yang diteruskan apa adanya.
+            salvaged = _extract_reply_message_fallback(bot_reply or "")
+            if salvaged and salvaged.strip():
+                print(f"[WEBHOOK:{agent_id}] JSON gagal diparse — "
+                      f"reply_message diselamatkan via regex.")
+                bot_reply = salvaged.strip()
+            elif (bot_reply or "").lstrip().startswith("{"):
+                print(f"[WEBHOOK:{agent_id}] Balasan mirip JSON tak terparse "
+                      f"& tak terselamatkan — diganti pesan generik.")
+                bot_reply = ("Maaf Kak, ada kendala memproses permintaanmu. "
+                             "Coba kirim ulang pesannya ya.")
 
     # GUARDRAIL v9 — anti-klaim sukses palsu unreg (instruksi PROMPT.md).
     # Model hanya boleh mengatakan layanan dinonaktifkan/dihentikan bila
@@ -2466,6 +2565,21 @@ def api_ai_usage():
     )
 
 
+@app.route("/api/dcb-logs", methods=["GET"])
+@superadmin_required  # payload log memuat PIN pelanggan — khusus superadmin
+@api_endpoint
+def api_dcb_logs():
+    """Log audit hit API DCB (check-status/unsub) — 200 baris terbaru.
+
+    Sumber data dcb_api_logs: satu baris per HIT HTTP nyata, termasuk
+    yang gagal koneksi/timeout (http_status NULL)."""
+    try:
+        limit = min(max(int(request.args.get("limit", 100)), 1), 200)
+    except (TypeError, ValueError):
+        limit = 100
+    return ok(data={"logs": get_dcb_api_logs(limit=limit)})
+
+
 @app.route("/api/agents", methods=["POST"])
 @superadmin_required
 @api_endpoint
@@ -2580,6 +2694,14 @@ def update_agent_config():
         cfg.telegram_token = (body.get("telegram_token") or "").strip() or None
     if "is_active" in body:
         cfg.is_active = bool(body["is_active"])
+    # Konfigurasi DCB: pola sama — diubah hanya bila dikirim eksplisit
+    # (mendukung update parsial; string kosong = menghapus nilai).
+    if "dcb_base_url" in body:
+        cfg.dcb_base_url = (body.get("dcb_base_url") or "").strip() or None
+    if "dcb_auth_username" in body:
+        cfg.dcb_auth_username = (body.get("dcb_auth_username") or "").strip() or None
+    if "dcb_auth_password" in body:
+        cfg.dcb_auth_password = (body.get("dcb_auth_password") or "").strip() or None
 
     db.commit()
 
