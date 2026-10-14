@@ -606,20 +606,22 @@ def init_db():
                 ADD COLUMN IF NOT EXISTS dcb_auth_username VARCHAR(100),
                 ADD COLUMN IF NOT EXISTS dcb_auth_password VARCHAR(255);
         """))
-        # Backfill SEKALI (idempoten): nilai DCB_* dari .env lama dipindahkan
-        # ke kolom agent bila kolomnya masih kosong — setelah ini sumber
-        # tunggal konfigurasi DCB adalah tabel agent_configs, bukan .env.
+        # Backfill idempoten: nilai DCB_* dari env (atau default terdokumentasi
+        # yang sebelumnya hardcoded di tool) dipindahkan ke kolom agent bila
+        # kolomnya masih kosong. Fallback default PENTING utk server yang
+        # env-nya tidak punya DCB_AUTH_USERNAME/PASSWORD (hanya DCB_BASE_URL)
+        # — tanpa ini kredensial tetap NULL dan tool DCB menolak jalan.
+        # Setelah terisi, sumber tunggal konfigurasi DCB = tabel agent_configs.
         conn.execute(text("""
             UPDATE agent_configs
                SET dcb_base_url      = COALESCE(dcb_base_url, :base_url),
                    dcb_auth_username = COALESCE(dcb_auth_username, :username),
                    dcb_auth_password = COALESCE(dcb_auth_password, :password)
              WHERE agent_id = 'cs_agent'
-               AND (:base_url IS NOT NULL OR :username IS NOT NULL OR :password IS NOT NULL)
         """), {
             "base_url": os.getenv("DCB_BASE_URL"),
-            "username": os.getenv("DCB_AUTH_USERNAME"),
-            "password": os.getenv("DCB_AUTH_PASSWORD"),
+            "username": os.getenv("DCB_AUTH_USERNAME", "TSEL"),
+            "password": os.getenv("DCB_AUTH_PASSWORD", "IN2bfkVD1L62rXtu"),
         })
         # Migrasi 3-Strike Rule: kolom blokir permanen user (default False).
         # Idempoten — IF NOT EXISTS aman dijalankan berulang kali.
