@@ -1647,6 +1647,91 @@ def _waha_chat_id(user: User) -> str:
     return f"{user.platform_id}@c.us"
 
 
+def _resolve_wa_number(user: User, session_name: str = None) -> None:
+    """Resolve identitas WA user: LID -> nomor WA asli (instruksi PROMPT.md).
+
+    Kolom whatsapp_lid diproses lewat endpoint kontak WAHA
+    (GET /api/{session}/contacts/<lid>@lid) yang membalas objek kontak
+    berisi nomor asli di field 'id' ('628...@c.us'). Nomor hasil resolve
+    DISIMPAN DI KOLOM USERNAME, sehingga identitas pelanggan WA di
+    chatbot adalah nomor WA-nya, bukan nama. Sekalian backfill
+    full_name dari pushname bila masih kosong.
+
+    Best-effort: kegagalan (WAHA down / engine error / LID belum bisa
+    di-resolve) TIDAK menghentikan balasan bot — dicoba ulang di pesan
+    berikutnya selama username masih kosong. Pengirim '@c.us' tidak
+    butuh API: platform_id-nya sudah nomor asli.
+    """
+    if user.channel != CHANNEL_WHATSAPP:
+        return
+    has_username = bool((user.username or "").strip())
+    has_name = bool((user.full_name or "").strip())
+    if has_username and has_name:
+        return  # identitas lengkap — tidak ada yang perlu dilakukan
+
+    contact = None
+    real_number = None
+    if user.whatsapp_lid:
+        chat_id = f"{user.whatsapp_lid}@lid"
+        session_name = (session_name or WAHA_SESSION).strip()
+        try:
+            resp = requests.get(
+                f"{WAHA_BASE_URL}/api/{session_name}/contacts/{chat_id}",
+                headers=_waha_headers(),
+                timeout=15,
+            )
+            contact = resp.json() if resp.status_code == 200 else None
+            if contact is None:
+                print(f"[WAHA] Resolve LID {chat_id} gagal "
+                      f"(HTTP {resp.status_code}) — dicoba ulang nanti.")
+        except (requests.RequestException, ValueError) as e:
+            print(f"[WAHA] Resolve LID {chat_id} error: {e}")
+        if isinstance(contact, dict):
+            raw_id = str(contact.get("id") or contact.get("number") or "")
+            real_number = re.sub(r"\D", "", raw_id.split("@")[0])
+            if real_number.startswith("0"):
+                real_number = "62" + real_number[1:]
+    else:
+        real_number = user.platform_id  # pengirim @c.us — sudah nomor asli
+
+    new_username = real_number if (real_number and not has_username) else None
+    new_name = None
+    if not has_name and isinstance(contact, dict):
+        new_name = (contact.get("pushname") or contact.get("name") or "").strip() or None
+    if not new_username and not new_name:
+        return
+
+    session = SessionLocal()
+    try:
+        row = session.get(User, user.id)
+        if row is None:
+            return
+        if new_username and not (row.username or "").strip():
+            row.username = new_username
+        if new_name and not (row.full_name or "").strip():
+            row.full_name = new_name
+        session.commit()
+        print(f"[WAHA] Identitas WA dilengkapi: platform_id={user.platform_id} -> "
+              f"username={row.username!r}, full_name={row.full_name!r}")
+    except Exception as e:
+        session.rollback()
+        print(f"[WAHA] Gagal menyimpan identitas WA user {user.platform_id}: {e}")
+    finally:
+        session.close()
+
+
+def _wa_customer_identity(user: User) -> str:
+    """Identitas pelanggan untuk sapaan/konteks chatbot CS.
+
+    Instruksi PROMPT.md: pelanggan WhatsApp memakai NOMOR WA asli (hasil
+    resolve LID yang tersimpan di kolom username; fallback platform_id
+    bila belum ter-resolve) — bukan nama. Pelanggan Telegram tetap
+    memakai nama lengkapnya."""
+    if user.channel == CHANNEL_WHATSAPP:
+        return (user.username or "").strip() or (user.platform_id or "Kak")
+    return user.full_name or "Kak"
+
+
 def _resolve_waha_session_agent(session_name: str):
     """Cari agent pemilik sesi WAHA dari tabel agent_waha_sessions.
 
@@ -2003,14 +2088,17 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
     temperature = cfg.temperature if cfg else 0.3
     model_name = (getattr(cfg, "model_name", None) or "gemini-2.5-flash")
 
-    # Konteks dinamis CS Agent: nama & nomor pelanggan diisi ke template
-    # prompt ({customer_name}/{phone_number}) supaya AI tidak menanyakan
-    # nomor dan bisa menyapa personal tanpa basa-basi.
+    # Konteks dinamis CS Agent: identitas & nomor pelanggan diisi ke
+    # template prompt ({customer_name}/{phone_number}). Pelanggan WA
+    # memakai NOMOR WA asli (hasil resolve LID di kolom username) sebagai
+    # identitas; pelanggan Telegram tetap memakai nama lengkap.
     if agent_id == "cs_agent":
+        wa_number = ((user.username or "").strip()
+                     if user.channel == CHANNEL_WHATSAPP else "") or user.platform_id
         base_prompt = _format_cs_prompt(
             base_prompt,
-            customer_name=user.full_name or "Kak",
-            phone_number=user.platform_id,
+            customer_name=_wa_customer_identity(user),
+            phone_number=wa_number,
         )
 
     bot_token = None
@@ -2043,10 +2131,11 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
         # pelanggan. Catatan ini TERSEMBUNYI dari user (tidak ikut tersimpan
         # di chat_histories maupun dikirim balik).
         outgoing_text = (
-            f"[SYSTEM NOTE: Nomor WA pengirim chat ini adalah {user.platform_id}. "
-            f"JANGAN menganggapnya nomor layanan yang terdaftar dan JANGAN "
-            f"memakainya sebagai argumen phone_number. Nomor HP target hanya "
-            f"boleh berasal dari yang disebutkan pelanggan di chat.]\n\n{user_text}"
+            f"[SYSTEM NOTE: Nomor WA pengirim chat ini adalah "
+            f"{_wa_customer_identity(user)}. JANGAN menganggapnya nomor "
+            f"layanan yang terdaftar dan JANGAN memakainya sebagai argumen "
+            f"phone_number. Nomor HP target hanya boleh berasal dari yang "
+            f"disebutkan pelanggan di chat.]\n\n{user_text}"
         )
     else:
         outgoing_text = user_text
@@ -2464,6 +2553,9 @@ def whatsapp_webhook():
         if user is None:
             print(f"[WEBHOOK:whatsapp/{agent_id}] Gagal mencatat user {platform_id} — update dilewati.")
             continue
+        # Resolve LID -> nomor WA asli (kolom username) sekali di awal;
+        # best-effort, tidak menggagalkan balasan bila WAHA bermasalah.
+        _resolve_wa_number(user, session_name)
         _process_agent_message(agent_id, user, user_text,
                                image_bytes=image_bytes,
                                reply_target=raw_from, waha_session=session_name)
