@@ -710,6 +710,13 @@ CS_AGENT_PROMPT_V10_MARKER = "FORMAT NOMOR HP (MSISDN)"
 # otomatis ditimpa saat start; yang sudah memuat dibiarkan (idempoten).
 CS_AGENT_PROMPT_V11_MARKER = "NOMOR HP OTOMATIS"
 
+# Marker versi v12 (memori antar-giliran + nomor HP eksplisit): mencabut
+# otomasi v11 — nomor WA pengirim sering berbeda dari nomor terdaftar,
+# jadi nomor HP target WAJIB ditanyakan bila belum ada di riwayat chat,
+# dan data (kode layanan/PIN/nomor) dari giliran sebelumnya WAJIB
+# diingat. Instans v0-v11 otomatis ditimpa saat start (idempoten).
+CS_AGENT_PROMPT_V12_MARKER = "ATURAN MEMORI"
+
 CS_AGENT_SYSTEM_PROMPT = r"""<role>
 Anda adalah asisten Customer Service (CS) virtual untuk PT Pass Indonesia. Tugas Anda adalah merespons keluhan dan pertanyaan pelanggan terkait layanan digital (seperti GOFIT, HISTERIA, dan Digmagz) dengan gaya bahasa yang luwes, empatik, proaktif, dan natural (human-like). Anda dilarang keras membalas dengan gaya robotik atau memberikan template kaku yang berulang-ulang tanpa memperhatikan konteks.
 </role>
@@ -717,7 +724,7 @@ Anda adalah asisten Customer Service (CS) virtual untuk PT Pass Indonesia. Tugas
 <konteks_sistem>
 - Pelanggan : {customer_name}
 - Nomor WA  : {phone_number}
-(Gunakan nama pelanggan untuk menyapa. Nomor WA sudah terdeteksi di sistem, JANGAN tanyakan lagi).
+(Gunakan nama pelanggan untuk menyapa. Nomor WA pengirim chat terdeteksi otomatis — itu HANYA nomor pengirim, BUKAN nomor layanan yang terdaftar; untuk unreg/cek status, nomor HP terdaftar WAJIB ditanyakan bila belum disebutkan pelanggan).
 </konteks_sistem>
 
 <guidelines>
@@ -732,8 +739,9 @@ Anda adalah asisten Customer Service (CS) virtual untuk PT Pass Indonesia. Tugas
 6. **Aturan Ekstraksi PIN (ANTI-HALUSINASI):** PIN dapat berupa kombinasi huruf besar, huruf kecil, dan angka (alfanumerik) dengan panjang bervariasi (contoh nyata dari SMS live: "GbOwV9KA"). JANGAN PERNAH berasumsi bahwa PIN harus berupa angka murni. Terima dan gunakan string apa pun yang tertera di SMS pengguna secara apa adanya.
 7. **Tahap 1 Lock (SANGAT KETAT):** Saat pertama kali mengekstrak PIN dan Kode Layanan dari bukti SMS pengguna, ANDA DILARANG KERAS memvalidasi formatnya dan DILARANG KERAS memanggil tool apa pun. Anda WAJIB langsung merespons dengan Tahap 1 (Edukasi Mandiri).
 8. **KLAIM KEBERHASILAN PALSU DILARANG KERAS (SANGAT KETAT — TAHAP 3):** Anda TIDAK BOLEH sekalipun mengatakan layanan telah berhasil dinonaktifkan KECUALI Anda telah memanggil tool `unsubscribe_service` dan menerima respons balik "status": "success" dari sistem. Jika tool mengembalikan pesan error atau gagal, Anda WAJIB memberitahu pengguna bahwa proses gagal sesuai dengan alasan dari sistem — JANGAN mengarang keberhasilan.
-9. **NOMOR HP OTOMATIS (DIURUS SISTEM) & FORMAT MSISDN:** Anda tidak perlu menanyakan nomor telepon pelanggan karena sistem otomatis menggunakan nomor WhatsApp pengirim. Fokus saja mengekstrak `service_code` dan `pin` dari bukti SMS. JANGAN mengisi argumen `phone_number` KECUALI pelanggan eksplisit minta unreg nomor LAIN yang berbeda dari nomor pengirimnya — dan bila mengisi, WAJIB ubah format awalan '0' menjadi '62' (contoh: 0812... menjadi 62812...) sebelum memasukkannya ke argumen tool `unsubscribe_service` atau `check_subscription_status`.
-10. **DAFTAR KODE LAYANAN RESMI (KATALOG):**
+9. **ATURAN MEMORI (STATE TRACKING):** Anda memiliki akses ke riwayat percakapan. Jika pengguna sudah pernah mengirimkan bukti SMS yang berisi Kode Layanan (contoh: DIGMAGZ37) dan PIN, ATAU sudah menyebutkan nomor HP target pada chat sebelumnya, ANDA WAJIB mengingat dan menggunakan data tersebut terus-menerus. DILARANG KERAS meminta pengguna mengirim ulang bukti SMS, PIN, atau nomor HP jika informasi tersebut sudah ada di riwayat chat sebelumnya.
+10. **ATURAN EKSTRAKSI NOMOR TELEPON:** JANGAN pernah berasumsi bahwa nomor WhatsApp yang digunakan pengguna untuk chat adalah nomor yang terdaftar pada layanan. Jika pengguna belum menyebutkan nomor HP yang ingin di-unreg, Anda WAJIB menanyakannya. Ketika pengguna memberikan nomor HP (contoh: 085156893448), Anda WAJIB mengubah format awalan '0' menjadi '62' (contoh: 6285156893448) secara internal sebelum memasukkannya ke dalam argumen tool `unsubscribe_service` atau `check_subscription_status`.
+11. **DAFTAR KODE LAYANAN RESMI (KATALOG):**
    DIGMAGZ, DIGMAGZ36, DIGMAGZ37, GOFIT, GOFIT1, GOFIT3, GOFIT5, HISTERIA, HISTERIA3, HISTERIA7, HISTERIA30, LEGA1, LEGA2, LEGA5, LEGA30, TUUTAP, TUUTAP1, TUUTAP3, TUUTAP7. (Jika kode di luar daftar ini, beritahu bahwa layanan di luar wewenang kami).
 </guidelines>
 
@@ -804,31 +812,31 @@ def seed_cs_agent():
 
 
 def ensure_cs_agent_prompt_upgrade():
-    """Angkat system prompt cs_agent lama ke versi v11 (nomor WA otomatis).
+    """Angkat system prompt cs_agent lama ke versi v12 (memori + nomor eksplisit).
 
     Dipanggil saat aplikasi start (app.py) SEBELUM ensure_toxic_rule_in_prompts().
     Template memuat placeholder {customer_name}/{phone_number} yang diisi
     per pesan oleh _format_cs_prompt (app.py), jadi JANGAN di-.format() di sini.
-    Pemicu = CS_AGENT_PROMPT_V11_MARKER (aturan "NOMOR HP OTOMATIS" yang
-    hanya ada mulai v11), sehingga semua instans lebih lama — v0 (CS
-    pulsa), v1 (DCB), v2 (katalog), v3 (JSON), v4 (redaksi), v5/v6 (unreg
-    2 tahap), v7 (unreg 3 tahap), v8 (anti-halusinasi PIN), v9 (anti-klaim
-    sukses palsu), v10 (format MSISDN) — ikut tertimpa ke v11. Aturan
-    toxic yang sempat terhapus karena penimpaan dipasang ulang otomatis
-    oleh ensure_toxic_rule_in_prompts() yang dijalankan sesudahnya. Prompt
-    yang sudah memuat marker v11 dibiarkan (idempoten & aman dipanggil
-    berulang). Best-effort: kegagalan DB tidak boleh menggagalkan start
-    aplikasi.
+    Pemicu = CS_AGENT_PROMPT_V12_MARKER (aturan "ATURAN MEMORI" yang hanya
+    ada mulai v12), sehingga semua instans lebih lama — v0 (CS pulsa), v1
+    (DCB), v2 (katalog), v3 (JSON), v4 (redaksi), v5/v6 (unreg 2 tahap),
+    v7 (unreg 3 tahap), v8 (anti-halusinasi PIN), v9 (anti-klaim sukses
+    palsu), v10 (format MSISDN), v11 (nomor WA otomatis, dicabut) — ikut
+    tertimpa ke v12. Aturan toxic yang sempat terhapus karena penimpaan
+    dipasang ulang otomatis oleh ensure_toxic_rule_in_prompts() yang
+    dijalankan sesudahnya. Prompt yang sudah memuat marker v12 dibiarkan
+    (idempoten & aman dipanggil berulang). Best-effort: kegagalan DB tidak
+    boleh menggagalkan start aplikasi.
     """
     session = SessionLocal()
     try:
         agent = session.query(AgentConfig).filter_by(agent_id="cs_agent").first()
-        if agent is None or CS_AGENT_PROMPT_V11_MARKER in (agent.system_prompt or ""):
+        if agent is None or CS_AGENT_PROMPT_V12_MARKER in (agent.system_prompt or ""):
             return
         agent.system_prompt = CS_AGENT_SYSTEM_PROMPT
         session.commit()
-        print("[OK] System prompt cs_agent di-upgrade ke versi nomor WA "
-              "otomatis (v11).")
+        print("[OK] System prompt cs_agent di-upgrade ke versi memori + "
+              "nomor HP eksplisit (v12).")
     except Exception as e:
         session.rollback()
         print(f"✗ Gagal upgrade system prompt cs_agent: {e}")

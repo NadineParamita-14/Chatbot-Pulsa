@@ -1737,3 +1737,21 @@ Please update the backend logic (`app.py` and tool definitions) to automatically
    - Add a brief note: "Anda tidak perlu menanyakan nomor telepon pelanggan karena sistem otomatis menggunakan nomor WhatsApp pengirim. Fokus saja mengekstrak `service_code` dan `pin` dari bukti SMS."
 
 Please provide the updated Python code for the webhook and tool execution handling.
+
+# Context
+We are updating the `CS_AGENT_PROMPT` in `my_agent/db_service.py` to fix two main issues:
+1. **State Tracking Failure (Memory Loss):** The LLM forgets the extracted PIN and Service Code from earlier turns (e.g., from an SMS screenshot) if the conversation spans multiple turns (like when an API call fails). It keeps asking the user to send the SMS again.
+2. **Phone Number Mismatch:** We previously tried to use the WhatsApp sender ID, but users often chat using a different number than the one actually subscribed to the DCB service. The bot MUST explicitly ask the user for the registered phone number if it hasn't been provided yet.
+
+# Task
+Update the `CS_AGENT_PROMPT` in `my_agent/db_service.py` to enforce strict conversational memory and explicit phone number handling.
+
+Please add/update the following rules in the prompt's instructions or guardrails section:
+
+1. **ATURAN MEMORI (STATE TRACKING):**
+"Anda memiliki akses ke riwayat percakapan. Jika pengguna sudah pernah mengirimkan bukti SMS yang berisi Kode Layanan (contoh: DIGMAGZ37) dan PIN, ATAU sudah menyebutkan nomor HP target pada chat sebelumnya, ANDA WAJIB mengingat dan menggunakan data tersebut terus-menerus. DILARANG KERAS meminta pengguna mengirim ulang bukti SMS, PIN, atau nomor HP jika informasi tersebut sudah ada di riwayat chat sebelumnya."
+
+2. **ATURAN EKSTRAKSI NOMOR TELEPON:**
+"JANGAN pernah berasumsi bahwa nomor WhatsApp yang digunakan pengguna untuk chat adalah nomor yang terdaftar pada layanan. Jika pengguna belum menyebutkan nomor HP yang ingin di-unreg, Anda WAJIB menanyakannya. Ketika pengguna memberikan nomor HP (contoh: 085156893448), Anda WAJIB mengubah format awalan '0' menjadi '62' (contoh: 6285156893448) secara internal sebelum memasukkannya ke dalam argumen tool `unsubscribe_service` atau `check_subscription_status`."
+
+Please output the exact modified Python code for `CS_AGENT_PROMPT` reflecting these strict guardrails. Do not break the existing 3-Stage workflow logic.
