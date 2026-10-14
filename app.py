@@ -1162,10 +1162,25 @@ def _get_gemini_client():
 # Docstring di bawah DIBACA Gemini untuk memutuskan kapan tool dipanggil
 # — jangan diubah sembarangan.
 # ---------------------------------------------------------------------
+def _normalize_msisdn(raw) -> str | None:
+    """Normalisasi nomor HP ke format MSISDN 62xxxxxxxxxx (v10/v11).
+
+    Buang semua non-digit (spasi, strip, tanda '+'), lalu awalan 0 -> 62
+    (contoh: '0812...' -> '62812...'). Return None bila hasil tidak cocok
+    pola 62\\d{8,13} — dipakai sebagai sinyal 'nomor tidak valid' agar
+    pemanggil bisa meminta nomor yang benar alih-alih menyentuh API DCB.
+    """
+    digits = re.sub(r"\D", "", str(raw or ""))
+    if digits.startswith("0"):
+        digits = "62" + digits[1:]
+    return digits if re.fullmatch(r"62\d{8,13}", digits) else None
+
+
 def check_subscription_status(pin: str, code: str) -> dict:
     """
     Mengecek status aktif/inaktif dari layanan berlangganan pelanggan ke sistem DCB.
     Gunakan tool ini HANYA SETELAH berhasil mengekstrak 'pin' dan 'code' dari SMS pelanggan.
+    Nomor HP TIDAK diperlukan — sistem DCB mengenali langganan dari PIN & kode layanan.
 
     CRITICAL WARNING: DO NOT call this tool when the user first sends the SMS
     proof (Stage 1). ONLY call this tool IF the user has explicitly stated that
@@ -1239,25 +1254,22 @@ def unsubscribe_service(phone_number: str, service_code: str, pin: str = None) -
     proactively.
 
     Args:
-        phone_number: Nomor HP pelanggan — prioritas: nomor yang diekstrak dari teks chat pelanggan; format bebas (0812.../62812.../+62), akan dinormalkan otomatis ke awalan 62.
+        phone_number: OPSIONAL. Kosongkan untuk memakai nomor WhatsApp pengirim (otomatis oleh sistem). Hanya diisi bila pelanggan eksplisit minta unreg nomor LAIN; format bebas (0812.../62812.../+62), dinormalkan otomatis.
         service_code: Kode layanan resmi yang akan dihentikan (misal: GOFIT3).
         pin: PIN UNREG (boleh alfanumerik, misal: GbOwV9KA) yang diekstrak dari SMS pelanggan.
     """
-    # Failsafe format MSISDN (instruksi PROMPT.md): nomor dari teks chat
-    # bisa masuk sebagai '0812...', '+62812...', atau mengandung spasi/
-    # strip. Buang non-digit, lalu normalkan awalan 0 -> 62 sebelum nilai
-    # ini dipakai (pesan balasan & pemanggilan API DCB).
-    digits = re.sub(r"\D", "", str(phone_number or ""))
-    if digits.startswith("0"):
-        digits = "62" + digits[1:]
-    if not re.fullmatch(r"62\d{8,13}", digits):
+    # Failsafe format MSISDN (v10/v11): nomor apa pun yang masuk (dari
+    # chat atau default nomor WA pengirim) dinormalkan lewat helper —
+    # '0812...', '+62 812-...', spasi/strip -> '62812...'.
+    phone_number = _normalize_msisdn(phone_number)
+    if not phone_number:
         return {
             "status": "failed",
-            "error": (f"Nomor HP '{phone_number}' tidak valid setelah "
-                      "normalisasi. Minta pelanggan menyebutkan nomor "
-                      "Telkomsel yang benar (contoh format: 62812xxxxxxx)."),
+            "error": ("Nomor HP tidak valid atau kosong. Bila pelanggan "
+                      "tidak menyebutkan nomor lain, biarkan argumen "
+                      "phone_number kosong — sistem otomatis memakai nomor "
+                      "WhatsApp pengirim."),
         }
-    phone_number = digits
 
     if not pin:
         return {
@@ -1338,6 +1350,12 @@ def unsubscribe_service(phone_number: str, service_code: str, pin: str = None) -
                 "error": f"Gagal terhubung ke server DCB: {str(e)}"}
 
 
+# Referensi implementasi asli unsubscribe_service utk wrapper default-nomor
+# WA di _build_webhook_tools — di sana nama lokal 'unsubscribe_service'
+# ter-shadow oleh fungsi closure-nya sendiri, jadi harus lewat alias ini.
+_UNSUBSCRIBE_IMPL = unsubscribe_service
+
+
 # Guardrail anti-klaim sukses palsu (v9): frasa klaim unreg berhasil di
 # teks balasan model. Klaim ini hanya sah bila unsubscribe_service
 # benar-benar tereksekusi dan DCB API membalik sukses (lihat
@@ -1367,6 +1385,44 @@ def _build_webhook_tools(agent_id: str, user: User) -> list:
 
         tools.append(create_order_for_user)
     elif agent_id == "cs_agent":
+        # Otomasi nomor WA pengirim (v11): LLM TIDAK perlu mengekstrak/
+        # menanyakan nomor telepon — tool unsubscribe memakai nomor WA
+        # pengirim sebagai default argumen phone_number. LLM hanya mengisi
+        # phone_number bila pelanggan eksplisit minta unreg nomor LAIN.
+        # User LID (bukan nomor telepon sungguhan) akan ditolak helper
+        # normalisasi -> tool meminta nomor yang benar ke pelanggan.
+        sender_phone = (
+            _normalize_msisdn(user.platform_id)
+            if user.channel == CHANNEL_WHATSAPP else None
+        )
+        _real_unsubscribe = _UNSUBSCRIBE_IMPL  # alias modul-level (nama lokal ter-shadow)
+
+        def unsubscribe_service(phone_number: str = None, service_code: str = "",
+                                pin: str = None) -> dict:
+            """Menghentikan (UNREG) layanan berlangganan pelanggan ke sistem DCB.
+
+            Nomor HP TIDAK perlu diisi — sistem otomatis memakai nomor WhatsApp
+            pelanggan. Isi argumen phone_number HANYA jika pelanggan secara
+            eksplisit ingin menghentikan layanan di nomor LAIN yang berbeda
+            dari nomor WhatsApp yang sedang dipakai mengobrol.
+
+            Fokus Anda: ekstrak 'service_code' dan 'pin' dari bukti SMS 99790.
+
+            CRITICAL WARNING: DO NOT call this tool unless the user has
+            explicitly confirmed they want your help to unreg (Stage 3).
+            Never call this proactively.
+
+            Args:
+                phone_number: Kosongkan/abaikan. Hanya untuk nomor LAIN yang diminta eksplisit oleh pelanggan.
+                service_code: Kode layanan resmi yang akan dihentikan (misal: GOFIT3), harus ada di DAFTAR KODE LAYANAN RESMI.
+                pin: PIN UNREG (boleh alfanumerik, misal: GbOwV9KA) yang diekstrak dari SMS pelanggan. WAJIB.
+            """
+            return _real_unsubscribe(
+                phone_number=phone_number or sender_phone,
+                service_code=service_code,
+                pin=pin,
+            )
+
         tools.append(check_order_status)
         tools.append(check_subscription_status)
         tools.append(unsubscribe_service)
@@ -1877,16 +1933,16 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
         )
     elif agent_id == "cs_agent":
         # Context injection DCB: platform_id user WhatsApp adalah nomor HP
-        # pelanggan — AI tidak perlu menanyakan nomor. Prioritas tetap
-        # nomor yang diekstrak dari teks chat (aturan MSISDN v10); nomor
-        # sistem dipakai hanya bila pelanggan tidak menyebutkan nomor lain.
-        # Catatan ini TERSEMBUNYI dari user (tidak ikut tersimpan di
-        # chat_histories maupun dikirim balik).
+        # pelanggan. Sejak v11 sistem OTOMATIS memakainya sebagai default
+        # argumen phone_number tool (lihat _build_webhook_tools) — AI tidak
+        # perlu menanyakan/mengekstrak nomor. Catatan ini TERSEMBUNYI dari
+        # user (tidak ikut tersimpan di chat_histories maupun dikirim balik).
         outgoing_text = (
-            f"[SYSTEM NOTE: Nomor HP pelanggan ini adalah {user.platform_id}. "
-            f"Gunakan nomor ini HANYA jika pelanggan tidak menyebutkan nomor "
-            f"lain di chat. Normalisasi awalan 0 menjadi 62 sebelum memanggil "
-            f"tools.]\n\n{user_text}"
+            f"[SYSTEM NOTE: Nomor WA pelanggan ini adalah {user.platform_id}. "
+            f"Sistem otomatis memakainya untuk tool DCB — Anda tidak perlu "
+            f"menanyakan nomor telepon. Fokus ekstrak service_code dan pin "
+            f"dari bukti SMS; isi phone_number HANYA jika pelanggan eksplisit "
+            f"minta unreg nomor berbeda.]\n\n{user_text}"
         )
     else:
         outgoing_text = user_text

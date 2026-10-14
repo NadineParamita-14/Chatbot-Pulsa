@@ -1717,3 +1717,23 @@ Please update the tool definitions (function declarations) and the `CS_AGENT_PRO
    - Add a Python failsafe inside the `unsubscribe_service` function: `if phone_number.startswith('0'): phone_number = '62' + phone_number[1:]` to sanitize the input before hitting the real DCB API.
 
 Please provide the updated code snippets for these adjustments.
+
+# Context
+In our current setup, the Gemini CS Agent fails at Stage 3 if the user doesn't manually type their phone number, or it formats it incorrectly. We want a seamless UX where the user ONLY sends the SMS proof/PIN, and the system automatically uses their WhatsApp sender number for the DCB API tools.
+
+# Task
+Please update the backend logic (`app.py` and tool definitions) to automatically handle the WhatsApp sender's number.
+
+1. **Webhook Phone Number Extraction (`app.py`):**
+   - In the webhook route, ensure you extract the sender's phone number from the incoming WhatsApp/WAHA payload.
+   - Clean and format this default number (e.g., strip '+' signs, ensure it starts with '62' instead of '0').
+
+2. **Tool Execution Logic (`app.py` or `tools.py`):**
+   - Modify the `unsubscribe_service` and `check_subscription_status` tool execution loops. 
+   - By default, these tools MUST use the extracted WhatsApp sender number as the `phone_number` argument for the real DCB API. 
+   - The LLM should no longer be required to extract a phone number from the chat text to fulfill the tool arguments, unless the user explicitly states they want to unreg a *different* number.
+
+3. **Prompt Update (`CS_AGENT_PROMPT`):**
+   - Add a brief note: "Anda tidak perlu menanyakan nomor telepon pelanggan karena sistem otomatis menggunakan nomor WhatsApp pengirim. Fokus saja mengekstrak `service_code` dan `pin` dari bukti SMS."
+
+Please provide the updated Python code for the webhook and tool execution handling.
