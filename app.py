@@ -2619,6 +2619,48 @@ def register_all_webhooks_at_startup() -> None:
           f"agent terdaftar ke {PUBLIC_BASE_URL}.")
 
 
+def backfill_wa_identities() -> None:
+    """Resolve identitas WA user LAMA saat aplikasi start (backfill).
+
+    Instruksi PROMPT.md (resolveLid): kolom username diisi nomor WA asli
+    hasil resolve LID. User yang terlanjur tercatat SEBELUM fitur ini ada
+    tidak akan pernah ter-resolve bila hanya mengandalkan pesan masuk
+    berikutnya — maka saat start semua user WhatsApp yang username-nya
+    masih kosong diproses sekali lewat _resolve_wa_number (idempoten:
+    baris yang sudah lengkap dilewati otomatis). Best-effort: kegagalan
+    satu user tidak menggagalkan user lain maupun start aplikasi.
+    """
+    db = SessionLocal()
+    try:
+        pending = (
+            db.query(User)
+            .filter(
+                User.channel == CHANNEL_WHATSAPP,
+                func.coalesce(func.nullif(func.trim(User.username), ""), "") == "",
+            )
+            .limit(100)
+            .all()
+        )
+    except Exception as e:
+        print(f"[STARTUP] Gagal mengambil daftar user WA — backfill identitas dilewati: {e}")
+        return
+    finally:
+        db.close()
+
+    if not pending:
+        print("[STARTUP] Backfill identitas WA: tidak ada user yang perlu di-resolve.")
+        return
+    processed = 0
+    for u in pending:
+        try:
+            _resolve_wa_number(u)
+            processed += 1
+        except Exception as e:
+            print(f"[STARTUP] Backfill identitas gagal utk {u.platform_id}: {e}")
+    print(f"[STARTUP] Backfill identitas WA: {processed}/{len(pending)} user "
+          f"diproses (hasil resolve ada di log [WAHA] di atas).")
+
+
 # Dipanggil di level modul agar ikut jalan saat server start di mana pun —
 # python app.py maupun gunicorn (Docker). init_db() menjalankan migrasi
 # ringan yang IDEMPOTEN (kolom/constraint baru + backfill data lama), jadi
@@ -2636,6 +2678,13 @@ try:
     register_all_webhooks_at_startup()
 except Exception as _e:  # pragma: no cover
     print(f"[STARTUP] Peringatan: auto-registrasi webhook gagal: {_e}")
+
+# Backfill identitas WA lama (resolve LID -> username) — sekali di boot,
+# idempoten, best-effort (lihat backfill_wa_identities di atas).
+try:
+    backfill_wa_identities()
+except Exception as _e:  # pragma: no cover
+    print(f"[STARTUP] Peringatan: backfill identitas WA gagal: {_e}")
 
 
 def ensure_default_waha_session_mapping() -> None:
