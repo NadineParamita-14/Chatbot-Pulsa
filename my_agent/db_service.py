@@ -719,6 +719,12 @@ CS_AGENT_PROMPT_V11_MARKER = "NOMOR HP OTOMATIS"
 # diingat. Instans v0-v11 otomatis ditimpa saat start (idempoten).
 CS_AGENT_PROMPT_V12_MARKER = "ATURAN MEMORI"
 
+# Marker versi v13 (bubble ganda eksekusi unreg): reply_message utk
+# PROCESS_SMS_STAGE3_EXECUTE wajib dua bagian dipisah tag [JEDA] — backend
+# mengirim 2 bubble berjeda (kesan CS asli memproses). Instans v0-v12
+# otomatis ditimpa saat start (idempoten).
+CS_AGENT_PROMPT_V13_MARKER = "BUBBLE GANDA SAAT EKSEKUSI UNREG"
+
 CS_AGENT_SYSTEM_PROMPT = r"""<role>
 Anda adalah asisten Customer Service (CS) virtual untuk PT Pass Indonesia. Tugas Anda adalah merespons keluhan dan pertanyaan pelanggan terkait layanan digital (seperti GOFIT, HISTERIA, dan Digmagz) dengan gaya bahasa yang luwes, empatik, proaktif, dan natural (human-like). Anda dilarang keras membalas dengan gaya robotik atau memberikan template kaku yang berulang-ulang tanpa memperhatikan konteks.
 </role>
@@ -745,6 +751,7 @@ Anda adalah asisten Customer Service (CS) virtual untuk PT Pass Indonesia. Tugas
 10. **ATURAN EKSTRAKSI NOMOR TELEPON:** JANGAN pernah berasumsi bahwa nomor WhatsApp yang digunakan pengguna untuk chat adalah nomor yang terdaftar pada layanan. Jika pengguna belum menyebutkan nomor HP yang ingin di-unreg, Anda WAJIB menanyakannya. Ketika pengguna memberikan nomor HP (contoh: 085156893448), Anda WAJIB mengubah format awalan '0' menjadi '62' (contoh: 6285156893448) secara internal sebelum memasukkannya ke dalam argumen tool `unsubscribe_service` atau `check_subscription_status`.
 11. **DAFTAR KODE LAYANAN RESMI (KATALOG):**
    DIGMAGZ, DIGMAGZ36, DIGMAGZ37, GOFIT, GOFIT1, GOFIT3, GOFIT5, HISTERIA, HISTERIA3, HISTERIA7, HISTERIA30, LEGA1, LEGA2, LEGA5, LEGA30, TUUTAP, TUUTAP1, TUUTAP3, TUUTAP7. (Jika kode di luar daftar ini, beritahu bahwa layanan di luar wewenang kami).
+12. **BUBBLE GANDA SAAT EKSEKUSI UNREG (WAJIB):** Untuk intent `PROCESS_SMS_STAGE3_EXECUTE`, `reply_message` WAJIB terdiri dari DUA bagian dipisah tag `[JEDA]` — bagian 1: konfirmasi singkat bahwa proses sedang berjalan (contoh: "Baik, Kak. Tunggu sebentar ya..."), bagian 2: hasil akhirnya ("Nah, layanan X sudah berhasil kami hentikan..."). Sistem mengirimnya sebagai 2 pesan terpisah dengan jeda. JANGAN gunakan tag `[JEDA]` untuk intent lain.
 </guidelines>
 
 <response_templates>
@@ -757,8 +764,8 @@ Anda adalah asisten Customer Service (CS) virtual untuk PT Pass Indonesia. Tugas
 - **Skenario 3: Konfirmasi Persetujuan (Tahap 2)**
   "Waduh, maaf ya kalau cara mandirinya masih terkendala. Biar aku bantu cabut langsung dari sistem kami ya. Tapi sebelum itu, apakah Kak {customer_name} yakin ingin menonaktifkan layanan [NAMA_LAYANAN] ini sekarang?"
 
-- **Skenario 4: Eksekusi Unreg oleh CS (Tahap 3 — HANYA jika tool `unsubscribe_service` membalik "status": "success"; jika tool gagal/error, sampaikan kegagalannya sesuai alasan sistem, JANGAN pakai template ini)**
-  "Baik, Kak. Tunggu sebentar ya... Nah, layanan [NAMA_LAYANAN] kamu sudah berhasil kami hentikan. Kamu tidak perlu khawatir pulsa terpotong lagi ya."
+- **Skenario 4: Eksekusi Unreg oleh CS (Tahap 3 — HANYA jika tool `unsubscribe_service` membalik "status": "success"; jika tool gagal/error, sampaikan kegagalannya sesuai alasan sistem, JANGAN pakai template ini). Dua bagian dipisah [JEDA]:**
+  "Baik, Kak. Tunggu sebentar ya... [JEDA] Nah, layanan [NAMA_LAYANAN] kamu sudah berhasil kami hentikan untuk nomor [NOMOR_HP]. Kamu tidak perlu khawatir pulsa terpotong lagi ya."
 </response_templates>
 
 <instructions>
@@ -773,7 +780,7 @@ Output HANYA dalam format JSON murni persis seperti di bawah ini, tanpa markdown
         "service_code": "UPPERCASE_STRING|null",
         "pin": "ALPHANUMERIC_STRING|null"
     }},
-    "reply_message": "Tuliskan pesan balasan natural Anda di sini.",
+    "reply_message": "Tuliskan pesan balasan natural Anda di sini (utk intent PROCESS_SMS_STAGE3_EXECUTE wajib dua bagian dipisah tag [JEDA] — lihat aturan 12).",
     "confidence": 0.95
 }}
 """
@@ -814,31 +821,32 @@ def seed_cs_agent():
 
 
 def ensure_cs_agent_prompt_upgrade():
-    """Angkat system prompt cs_agent lama ke versi v12 (memori + nomor eksplisit).
+    """Angkat system prompt cs_agent lama ke versi v13 (bubble ganda unreg).
 
     Dipanggil saat aplikasi start (app.py) SEBELUM ensure_toxic_rule_in_prompts().
     Template memuat placeholder {customer_name}/{phone_number} yang diisi
     per pesan oleh _format_cs_prompt (app.py), jadi JANGAN di-.format() di sini.
-    Pemicu = CS_AGENT_PROMPT_V12_MARKER (aturan "ATURAN MEMORI" yang hanya
-    ada mulai v12), sehingga semua instans lebih lama — v0 (CS pulsa), v1
-    (DCB), v2 (katalog), v3 (JSON), v4 (redaksi), v5/v6 (unreg 2 tahap),
-    v7 (unreg 3 tahap), v8 (anti-halusinasi PIN), v9 (anti-klaim sukses
-    palsu), v10 (format MSISDN), v11 (nomor WA otomatis, dicabut) — ikut
-    tertimpa ke v12. Aturan toxic yang sempat terhapus karena penimpaan
-    dipasang ulang otomatis oleh ensure_toxic_rule_in_prompts() yang
-    dijalankan sesudahnya. Prompt yang sudah memuat marker v12 dibiarkan
-    (idempoten & aman dipanggil berulang). Best-effort: kegagalan DB tidak
-    boleh menggagalkan start aplikasi.
+    Pemicu = CS_AGENT_PROMPT_V13_MARKER (aturan "BUBBLE GANDA SAAT EKSEKUSI
+    UNREG" yang hanya ada mulai v13), sehingga semua instans lebih lama —
+    v0 (CS pulsa), v1 (DCB), v2 (katalog), v3 (JSON), v4 (redaksi), v5/v6
+    (unreg 2 tahap), v7 (unreg 3 tahap), v8 (anti-halusinasi PIN), v9
+    (anti-klaim sukses palsu), v10 (format MSISDN), v11 (nomor WA otomatis,
+    dicabut), v12 (memori + nomor eksplisit) — ikut tertimpa ke v13. Aturan
+    toxic yang sempat terhapus karena penimpaan dipasang ulang otomatis
+    oleh ensure_toxic_rule_in_prompts() yang dijalankan sesudahnya. Prompt
+    yang sudah memuat marker v13 dibiarkan (idempoten & aman dipanggil
+    berulang). Best-effort: kegagalan DB tidak boleh menggagalkan start
+    aplikasi.
     """
     session = SessionLocal()
     try:
         agent = session.query(AgentConfig).filter_by(agent_id="cs_agent").first()
-        if agent is None or CS_AGENT_PROMPT_V12_MARKER in (agent.system_prompt or ""):
+        if agent is None or CS_AGENT_PROMPT_V13_MARKER in (agent.system_prompt or ""):
             return
         agent.system_prompt = CS_AGENT_SYSTEM_PROMPT
         session.commit()
-        print("[OK] System prompt cs_agent di-upgrade ke versi memori + "
-              "nomor HP eksplisit (v12).")
+        print("[OK] System prompt cs_agent di-upgrade ke versi bubble "
+              "ganda unreg (v13).")
     except Exception as e:
         session.rollback()
         print(f"✗ Gagal upgrade system prompt cs_agent: {e}")

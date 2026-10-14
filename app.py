@@ -1414,6 +1414,34 @@ UNREG_SUCCESS_CLAIM_RE = re.compile(
 # Batas round eksekusi tool per pesan masuk (cegah loop tak berujung).
 MAX_TOOL_ROUNDS = 5
 
+# Bubble ganda unreg (cs_agent): reply_message utk intent eksekusi Tahap 3
+# memuat tag [JEDA] — bagian 1 dikirim langsung ("Tunggu sebentar ya..."),
+# bagian 2 (hasil akhir) menyusul setelah jeda singkat, meniru CS asli
+# yang sedang memproses. Tag TIDAK PERNAH bocor ke user: bila model tak
+# memakai tag -> tetap satu bubble; agent lain -> tag dibuang jadi newline.
+CS_REPLY_SPLIT_TAG = "[JEDA]"
+CS_REPLY_BUBBLE_DELAY_SECONDS = 2.5
+
+
+def _split_reply_bubbles(text: str, agent_id: str) -> list:
+    """Pecah balasan ber-tag [JEDA] menjadi daftar bubble pesan.
+
+    cs_agent + tag ada -> beberapa bubble (dikirim berjeda oleh pemanggil).
+    Selain itu -> satu bubble dengan tag dibuang (jadi newline) supaya tag
+    tidak pernah terlihat pelanggan.
+    """
+    if not text:
+        return []
+    parts = [p.strip() for p in text.split(CS_REPLY_SPLIT_TAG) if p.strip()]
+    if agent_id == "cs_agent" and len(parts) > 1:
+        return parts
+    # Jalur fallback (agent lain / tanpa tag): tag jadi newline, tiap
+    # baris di-strip agar tidak ada sisa spasi menjuntai.
+    single = "\n".join(
+        line.strip() for line in text.replace(CS_REPLY_SPLIT_TAG, "\n").splitlines()
+    ).strip()
+    return [single] if single else []
+
 
 def _build_webhook_tools(agent_id: str, user: User) -> list:
     """Tool Gemini per agent — port dari bot.py (pulsa) & bot_cs.py (CS).
@@ -2181,26 +2209,33 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
         return
 
     # "Postman": parse tag [GAMBAR: x] — teks dikirim bersih tanpa tag,
-    # lalu file gambarnya dikirim sesuai channel.
+    # lalu file gambarnya dikirim sesuai channel. Tag [JEDA] (bubble ganda
+    # unreg cs_agent) ikut dibersihkan: balasan dipecah jadi beberapa
+    # bubble yang dikirim berjeda — kesan CS asli sedang memproses.
     clean_reply, image_files = _extract_image_tags(bot_reply)
+    message_parts = _split_reply_bubbles(clean_reply, agent_id)
 
     save_chat_history(
         user_id=user.id,
         agent_id=agent_id,
         model_name=model_name,
         user_input=user_text,
-        bot_output=clean_reply,
+        bot_output="\n".join(message_parts),
     )
 
     if user.channel == CHANNEL_WHATSAPP:
         target = reply_target or _waha_chat_id(user)
-        if clean_reply:
-            _send_waha_text(target, clean_reply, session=waha_session)
+        for i, part in enumerate(message_parts):
+            if i > 0:
+                time.sleep(CS_REPLY_BUBBLE_DELAY_SECONDS)
+            _send_waha_text(target, part, session=waha_session)
         for filename in image_files:
             _send_waha_file(target, BOT_IMAGES_DIR / filename, session=waha_session)
     else:
-        if clean_reply:
-            _send_telegram_text(bot_token, user.platform_id, clean_reply)
+        for i, part in enumerate(message_parts):
+            if i > 0:
+                time.sleep(CS_REPLY_BUBBLE_DELAY_SECONDS)
+            _send_telegram_text(bot_token, user.platform_id, part)
         for filename in image_files:
             _send_telegram_photo(bot_token, user.platform_id, BOT_IMAGES_DIR / filename)
 
