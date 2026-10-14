@@ -1172,7 +1172,7 @@ def check_subscription_status(pin: str, code: str) -> dict:
     manual unreg failed AND you are at Stage 2 or Stage 3.
 
     Args:
-        pin: PIN verifikasi (angka) yang diekstrak dari pesan/SMS pelanggan.
+        pin: PIN verifikasi (boleh alfanumerik, misal: GbOwV9KA) yang diekstrak dari pesan/SMS pelanggan.
         code: Kode layanan resmi (misal: HISTERIA, GOFIT3).
     """
     base_url = os.getenv("DCB_BASE_URL", "http://127.0.0.1:5000")
@@ -1241,7 +1241,7 @@ def unsubscribe_service(phone_number: str, service_code: str, pin: str = None) -
     Args:
         phone_number: Nomor HP pelanggan (sudah ada di memori sistem, dipakai untuk pesan balasan).
         service_code: Kode layanan resmi yang akan dihentikan (misal: GOFIT3).
-        pin: PIN UNREG (angka) yang diekstrak dari SMS pelanggan.
+        pin: PIN UNREG (boleh alfanumerik, misal: GbOwV9KA) yang diekstrak dari SMS pelanggan.
     """
     if not pin:
         return {
@@ -1320,6 +1320,19 @@ def unsubscribe_service(phone_number: str, service_code: str, pin: str = None) -
     except requests.exceptions.RequestException as e:
         return {"status": "failed",
                 "error": f"Gagal terhubung ke server DCB: {str(e)}"}
+
+
+# Guardrail anti-klaim sukses palsu (v9): frasa klaim unreg berhasil di
+# teks balasan model. Klaim ini hanya sah bila unsubscribe_service
+# benar-benar tereksekusi dan DCB API membalik sukses (lihat
+# unreg_succeeded di _process_agent_message). Menangkap variasi
+# "berhasil dinonaktifkan", "sudah berhasil kami hentikan", dsw.
+UNREG_SUCCESS_CLAIM_RE = re.compile(
+    r"(berhasil|sukses)[^.]{0,40}?(?:dinonaktifkan|(?:di)?hentikan|(?:di)?cabut|nonaktif)"
+    r"|(?:dinonaktifkan|(?:di)?hentikan|(?:di)?cabut|nonaktifkan)[^.]{0,40}?(berhasil|sukses)"
+    r"|(?:sudah|telah)[^.]{0,25}?(?:kami|kita|saya|aku)?\s*(?:dinonaktifkan|(?:di)?hentikan|(?:di)?cabut)\b",
+    re.IGNORECASE,
+)
 
 
 # Batas round eksekusi tool per pesan masuk (cegah loop tak berujung).
@@ -1861,6 +1874,11 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
     # Multimodal: bila user mengirim foto, buka sebagai PIL Image dan
     # kirim bersama teksnya. Gagal membuka -> lanjut teks saja.
     image = None
+    # Guardrail anti-klaim sukses palsu (v9): True HANYA bila
+    # unsubscribe_service tereksekusi di turn ini DAN DCB API membalik
+    # status success. Diinisialisasi di luar try agar tetap terdefinisi
+    # bila exception terjadi sebelum loop tool berjalan.
+    unreg_succeeded = False
     if image_bytes:
         try:
             from PIL import Image
@@ -1915,11 +1933,36 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
                     result = {"status": "error",
                               "message": f"Tool '{fc.name}' tidak dikenal."}
                 else:
+                    # Eksekusi SYNCHRONOUS: tool melakukan HTTP request
+                    # nyata ke DCB API (timeout=10) dan hasil responsnya
+                    # inilah yang diumpankan balik ke model di bawah.
                     try:
                         result = fn(**(fc.args or {}))
                     except Exception as e:
                         print(f"[WEBHOOK:{agent_id}] Tool {fc.name} gagal: {e}")
                         result = {"status": "error", "message": str(e)}
+                if fc.name == "unsubscribe_service" and isinstance(result, dict):
+                    # Catat dasar klaim keberhasilan: HANYA respons sukses
+                    # nyata dari DCB API yang boleh memicu kalimat
+                    # "layanan berhasil dinonaktifkan" di balasan model.
+                    unreg_succeeded = unreg_succeeded or (
+                        str(result.get("status", "")).lower() == "success"
+                    )
+                # Umpan balik kegagalan eksplisit: hasil error/failed dari
+                # API nyata DILENGKAPI instruksi tegas — model cenderung
+                # mengabaikan field error bila tidak diperintah langsung,
+                # lalu mengarang jawaban sukses.
+                if isinstance(result, dict) and str(
+                        result.get("status", "")).lower() in ("failed", "error"):
+                    result = {
+                        **result,
+                        "instruction": (
+                            "PANGGILAN TOOL INI GAGAL di sistem nyata. WAJIB "
+                            "sampaikan kegagalannya ke pengguna sesuai field "
+                            "error/message. DILARANG keras mengatakan tindakan "
+                            "ini berhasil."
+                        ),
+                    }
                 print(f"[WEBHOOK:{agent_id}] Tool {fc.name}({fc.args or {}}) dipanggil.")
                 print(f"[WEBHOOK:{agent_id}] Hasil {fc.name}: {result}")
                 response_parts.append(
@@ -1973,6 +2016,23 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
             else:
                 print(f"[WEBHOOK:{agent_id}] JSON valid tapi reply_message "
                       f"kosong (intent={intent or '-'}) — teks mentah dipakai.")
+
+    # GUARDRAIL v9 — anti-klaim sukses palsu unreg (instruksi PROMPT.md).
+    # Model hanya boleh mengatakan layanan dinonaktifkan/dihentikan bila
+    # unsubscribe_service benar-benar tereksekusi di backend DAN DCB API
+    # membalik sukses. Menutup dua mode kegagalan yang dilaporkan: tool
+    # tak pernah dipanggil, atau error API diabaikan model.
+    if agent_id == "cs_agent" and not unreg_succeeded \
+            and UNREG_SUCCESS_CLAIM_RE.search(bot_reply or ""):
+        print(f"[WEBHOOK:{agent_id}] Klaim sukses unreg DITOLAK guardrail "
+              f"(unsubscribe_service tidak pernah sukses di turn ini) — "
+              f"balasan ditimpa pesan jujur.")
+        bot_reply = (
+            "Maaf Kak, proses penonaktifan layanannya belum berhasil "
+            "diselesaikan di sistem kami. 🙏 Coba konfirmasi ulang ya biar "
+            "aku proses lagi, atau coba cara mandiri: balas SMS dari 99790 "
+            "dengan mengetik UNREG [KODE_LAYANAN]."
+        )
 
     # 3-Strike Rule (fallback regex): AI menandai bahasa toxic lewat
     # {"intent": "toxic"} pada teks balasan. JSON mentah TIDAK diteruskan

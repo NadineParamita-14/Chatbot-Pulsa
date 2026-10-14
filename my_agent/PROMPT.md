@@ -1685,3 +1685,20 @@ Please add the following explicit rules to the `<guidelines>` or `<rules>` secti
 2. **Strict Stage 1 Lock:** "Saat pertama kali mengekstrak PIN dan Kode Layanan dari bukti SMS pengguna, ANDA DILARANG KERAS memvalidasi formatnya dan DILARANG KERAS memanggil tool apa pun. Anda WAJIB langsung merespons dengan Tahap 1 (Edukasi Mandiri)."
 
 Ensure these rules are prominent. Keep the rest of the existing prompt logic intact.
+
+# Context
+We transitioned from a Mock API to a Real DCB API. The Gemini CS Agent is now hallucinating premature successes. When a user reaches Stage 3 and asks to unreg, the LLM replies with a success message ("Yeay! Layanan berhasil dinonaktifkan") BUT it either never actually executes the `unsubscribe_service` tool, or it completely ignores the error response from the real API. 
+
+# Task
+Please inspect the tool execution loop in `app.py` (or where the function calling is handled) and the `CS_AGENT_PROMPT` in `my_agent/db_service.py`. Implement the following strict fixes:
+
+1. **Backend Execution Loop (`app.py`):**
+   - Ensure that when the LLM decides to call `unsubscribe_service`, the Python backend actually waits for the real HTTP response from the DCB API.
+   - If the real API returns an error (e.g., HTTP 400/500, invalid PIN, timeout), this exact error message MUST be fed back into the LLM's context so the LLM knows it failed.
+
+2. **System Prompt Update (`CS_AGENT_PROMPT`):**
+   Add a strict constraint for Stage 3:
+   - "KLAIM KEBERHASILAN PALSU DILARANG KERAS: Anda TIDAK BOLEH sekalipun mengatakan layanan telah berhasil dinonaktifkan KECUALI Anda telah memanggil tool `unsubscribe_service` dan menerima respons balik 'SUCCESS' dari sistem."
+   - "Jika tool mengembalikan pesan error atau gagal, Anda WAJIB memberitahu pengguna bahwa proses gagal sesuai dengan alasan dari sistem, JANGAN mengarang keberhasilan."
+
+Please output the modified code blocks for the execution loop and the prompt updates.
