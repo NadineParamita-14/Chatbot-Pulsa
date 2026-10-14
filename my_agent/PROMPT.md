@@ -1671,4 +1671,17 @@ Please inspect `app.py`, specifically the WAHA webhook route (usually `/webhook/
 
 1. **Locate the Routing Logic:** Find where the code determines which `agent_id` or system prompt to use when a new message arrives.
 2. **Fix the Default Route:** Update the logic so that all general incoming messages default to `cs_agent`. If there is a dynamic router based on keywords or database states, temporarily force or prioritize `cs_agent` so I can test the CS workflow.
-3. **Output the Fix:** Provide the updated Python code snippets for the webhook route or the router function. Explain briefly what was causing it to hit the wrong agent and how you fixed it.
+3. **Output the Fix:** Provide the updated Python code snippets for the webhook route or the router function. Explain briefly what was causing it to hit the wrong agent and how you fixed it. 
+
+# Context
+Our Gemini CS Agent is failing the 3-Stage Guardrail when encountering a real, alphanumeric PIN (e.g., "GbOwV9KA") from a live SMS. The LLM hallucinates that PINs must be strictly numeric, panics, skips Stage 1 (Self-Service Education), and either hands over to an admin or immediately executes the unreg tool when the user complains.
+
+# Task
+Update the `CS_AGENT_PROMPT` string in `my_agent/db_service.py` to fix this hallucination.
+
+Please add the following explicit rules to the `<guidelines>` or `<rules>` section of the prompt:
+
+1. **Alphanumeric PIN Acceptance:** "Aturan Ekstraksi PIN: PIN dapat berupa kombinasi huruf besar, huruf kecil, dan angka (alfanumerik) dengan panjang bervariasi. JANGAN PERNAH berasumsi bahwa PIN harus berupa angka murni. Terima dan gunakan string apa pun yang tertera di SMS pengguna secara apa adanya."
+2. **Strict Stage 1 Lock:** "Saat pertama kali mengekstrak PIN dan Kode Layanan dari bukti SMS pengguna, ANDA DILARANG KERAS memvalidasi formatnya dan DILARANG KERAS memanggil tool apa pun. Anda WAJIB langsung merespons dengan Tahap 1 (Edukasi Mandiri)."
+
+Ensure these rules are prominent. Keep the rest of the existing prompt logic intact.

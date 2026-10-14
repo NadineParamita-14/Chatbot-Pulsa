@@ -684,10 +684,15 @@ def mark_order_as_paid(invoice_number: str):
 # untuk mengangkat instans lama. Marker = kalimat persona yang dipertahankan
 # sejak v5 (instruksi PROMPT.md), sehingga upgrade otomatis menangani
 # instans lama v0 (CS pulsa), v1 (DCB pertama), v2 (katalog), v3 (JSON +
-# frasa menyesatkan), v4 (redaksi layanan tidak terdaftar). CATATAN: v5 & v6
-# juga memuat marker ini sehingga TIDAK ter-angkat otomatis — pembaruannya
-# lewat penimpaan langsung.
+# frasa menyesatkan), v4 (redaksi layanan tidak terdaftar). Sejak v8,
+# pemicu upgrade berganti ke CS_AGENT_PROMPT_V8_MARKER di bawah (lihat).
 CS_AGENT_PROMPT_MARKER = "dilarang keras membalas dengan gaya robotik"
+
+# Marker versi v8 (anti-halusinasi PIN alfanumerik + Tahap 1 Lock): aturan
+# baru di <guidelines> yang hanya ada mulai v8. Instans v0-v7 (termasuk
+# v5/v6/v7 yang memuat persona marker tapi belum aturan ini) otomatis
+# ditimpa ke v8 saat start; yang sudah memuat dibiarkan (idempoten).
+CS_AGENT_PROMPT_V8_MARKER = "Aturan Ekstraksi PIN"
 
 CS_AGENT_SYSTEM_PROMPT = r"""<role>
 Anda adalah asisten Customer Service (CS) virtual untuk PT Pass Indonesia. Tugas Anda adalah merespons keluhan dan pertanyaan pelanggan terkait layanan digital (seperti GOFIT, HISTERIA, dan Digmagz) dengan gaya bahasa yang luwes, empatik, proaktif, dan natural (human-like). Anda dilarang keras membalas dengan gaya robotik atau memberikan template kaku yang berulang-ulang tanpa memperhatikan konteks.
@@ -708,7 +713,9 @@ Anda adalah asisten Customer Service (CS) virtual untuk PT Pass Indonesia. Tugas
    - **Tahap 1 (Edukasi Mandiri Murni):** Jika pelanggan mengeluh pulsa terpotong dan mengirim bukti SMS 99790, JANGAN memanggil tool apapun dan JANGAN menawarkan bantuan sistem. Cukup ekstrak kode layanan dan berikan panduan unreg mandiri (ketik UNREG [KODE_LAYANAN] kirim ke 99790) atau via UMB \*500\*939#.
    - **Tahap 2 (Konfirmasi Persetujuan):** Jika pelanggan membalas bahwa cara mandiri GAGAL, error, atau menyerah, JANGAN langsung memanggil tool unreg. Anda WAJIB menawarkan bantuan sistem sekaligus meminta persetujuan eksplisit (Contoh: "Biar aku bantu dari sistem, tapi apakah Kakak yakin ingin menonaktifkan layanan ini sekarang?").
    - **Tahap 3 (Eksekusi Final):** Jika pelanggan menjawab "Ya/Yakin/Setuju" dari pertanyaan Tahap 2, BARULAH Anda memanggil tool `check_subscription_status` dan `unsubscribe_service` untuk mengeksekusi sistem.
-6. **DAFTAR KODE LAYANAN RESMI (KATALOG):**
+6. **Aturan Ekstraksi PIN (ANTI-HALUSINASI):** PIN dapat berupa kombinasi huruf besar, huruf kecil, dan angka (alfanumerik) dengan panjang bervariasi (contoh nyata dari SMS live: "GbOwV9KA"). JANGAN PERNAH berasumsi bahwa PIN harus berupa angka murni. Terima dan gunakan string apa pun yang tertera di SMS pengguna secara apa adanya.
+7. **Tahap 1 Lock (SANGAT KETAT):** Saat pertama kali mengekstrak PIN dan Kode Layanan dari bukti SMS pengguna, ANDA DILARANG KERAS memvalidasi formatnya dan DILARANG KERAS memanggil tool apa pun. Anda WAJIB langsung merespons dengan Tahap 1 (Edukasi Mandiri).
+8. **DAFTAR KODE LAYANAN RESMI (KATALOG):**
    DIGMAGZ, DIGMAGZ36, DIGMAGZ37, GOFIT, GOFIT1, GOFIT3, GOFIT5, HISTERIA, HISTERIA3, HISTERIA7, HISTERIA30, LEGA1, LEGA2, LEGA5, LEGA30, TUUTAP, TUUTAP1, TUUTAP3, TUUTAP7. (Jika kode di luar daftar ini, beritahu bahwa layanan di luar wewenang kami).
 </guidelines>
 
@@ -736,7 +743,7 @@ Output HANYA dalam format JSON murni persis seperti di bawah ini, tanpa markdown
     "intent": "GREETING|COMPLAINT_NO_DATA|PROCESS_SMS_STAGE1_EDU|PROCESS_SMS_STAGE2_CONFIRM|PROCESS_SMS_STAGE3_EXECUTE|REDEEM_POINT|OUT_OF_SCOPE|TOXIC",
     "extracted_data": {{
         "service_code": "UPPERCASE_STRING|null",
-        "pin": "DIGIT_ONLY_STRING|null"
+        "pin": "ALPHANUMERIC_STRING|null"
     }},
     "reply_message": "Tuliskan pesan balasan natural Anda di sini.",
     "confidence": 0.95
@@ -779,28 +786,29 @@ def seed_cs_agent():
 
 
 def ensure_cs_agent_prompt_upgrade():
-    """Angkat system prompt cs_agent lama ke versi v7 (unreg 3 tahap).
+    """Angkat system prompt cs_agent lama ke versi v8 (anti-halusinasi PIN).
 
     Dipanggil saat aplikasi start (app.py) SEBELUM ensure_toxic_rule_in_prompts().
     Template memuat placeholder {customer_name}/{phone_number} yang diisi
     per pesan oleh _format_cs_prompt (app.py), jadi JANGAN di-.format() di sini.
-    Marker = kalimat persona yang dipertahankan sejak v5, sehingga instans
-    lama mana pun (CS pulsa lama / DCB v1 / katalog v2 / JSON v3 / redaksi
-    v4) ikut tertimpa. CATATAN: instans v5 & v6 memuat marker yang sama
-    sehingga TIDAK ter-angkat di sini — pembaruannya lewat penimpaan
-    langsung. Prompt yang sudah memuat marker dibiarkan (idempoten & aman
-    dipanggil berulang). Best-effort: kegagalan DB tidak boleh menggagalkan
-    start aplikasi.
+    Pemicu = CS_AGENT_PROMPT_V8_MARKER (aturan "Aturan Ekstraksi PIN" yang
+    hanya ada mulai v8), sehingga semua instans lebih lama — v0 (CS pulsa),
+    v1 (DCB), v2 (katalog), v3 (JSON), v4 (redaksi), v5/v6 (unreg 2 tahap),
+    v7 (unreg 3 tahap) — ikut tertimpa ke v8. Aturan toxic yang sempat
+    terhapus karena penimpaan dipasang ulang otomatis oleh
+    ensure_toxic_rule_in_prompts() yang dijalankan sesudahnya. Prompt yang
+    sudah memuat marker v8 dibiarkan (idempoten & aman dipanggil berulang).
+    Best-effort: kegagalan DB tidak boleh menggagalkan start aplikasi.
     """
     session = SessionLocal()
     try:
         agent = session.query(AgentConfig).filter_by(agent_id="cs_agent").first()
-        if agent is None or CS_AGENT_PROMPT_MARKER in (agent.system_prompt or ""):
+        if agent is None or CS_AGENT_PROMPT_V8_MARKER in (agent.system_prompt or ""):
             return
         agent.system_prompt = CS_AGENT_SYSTEM_PROMPT
         session.commit()
-        print("[OK] System prompt cs_agent di-upgrade ke versi unreg "
-              "3 tahap (v7).")
+        print("[OK] System prompt cs_agent di-upgrade ke versi anti-halusinasi "
+              "PIN (v8).")
     except Exception as e:
         session.rollback()
         print(f"✗ Gagal upgrade system prompt cs_agent: {e}")
