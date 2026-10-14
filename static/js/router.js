@@ -16,8 +16,8 @@
 const Routes = {
   login: { view: "view-login", public: true },
   dashboard: { view: "view-dashboard", title: "Dashboard", render: () => renderDashboard() },
-  products: { view: "view-products", title: "Produk", render: () => renderProducts() },
-  orders: { view: "view-orders", title: "Pesanan", render: () => renderOrders() },
+  // Fitur pulsa (produk & pesanan) dimatikan — aplikasi murni Customer
+  // Service; hash #products/#orders lama otomatis dialihkan ke #dashboard.
   chats: { view: "view-chats", title: "Riwayat Chat", render: () => renderChats() },
   waha: {
     view: "view-waha",

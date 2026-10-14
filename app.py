@@ -56,7 +56,9 @@ from models import (  # noqa: E402
     AdminRole,
     AgentConfig,
     AgentWahaSession,
+    AiUsageLog,
     ChatHistory,
+    DcbApiLog,
     Document,
     ModelAgent,
     Order,
@@ -481,47 +483,81 @@ def dashboard_charts():
 @admin_required
 @api_endpoint
 def dashboard_stats():
+    """Statistik dashboard — fokus Customer Service.
+
+    Fitur pulsa (produk & pesanan) sudah dimatikan dari aplikasi, jadi
+    metrik yang dilaporkan kini seputar aktivitas bot CS: percakapan,
+    pemakaian AI, hasil unreg DCB, dan moderasi pengguna."""
     db = get_db()
-
-    # Pendapatan = total order yang pembayarannya sudah 'paid'
-    revenue = (
-        db.query(func.coalesce(func.sum(Order.total_amount), 0))
-        .select_from(Order)
-        .join(OrderPayment, OrderPayment.order_id == Order.id)
-        .filter(OrderPayment.status == "paid")
-        .scalar()
-    )
-
-    status_counts = dict(
-        db.query(Order.status, func.count(Order.id)).group_by(Order.status).all()
-    )
+    now = datetime.now(timezone.utc)
+    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     stats = {
-        "total_revenue": float(revenue or 0),
-        "total_orders": sum(status_counts.values()),
-        "pending_orders": status_counts.get("pending", 0),
-        "success_orders": status_counts.get("success", 0),
-        "failed_orders": status_counts.get("failed", 0),
-        "total_products": db.query(func.count(Product.id)).scalar() or 0,
-        "total_stock": db.query(func.coalesce(func.sum(Product.qty), 0)).scalar() or 0,
+        # --- Aktivitas percakapan ---
         "total_customers": db.query(func.count(User.id)).scalar() or 0,
         "total_chats": db.query(func.count(ChatHistory.id)).scalar() or 0,
         # Chat sejak awal hari ini (batas hari mengikuti UTC server)
-        "chats_today": db.query(func.count(ChatHistory.id))
-        .filter(ChatHistory.created_at >= datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0))
-        .scalar()
-        or 0,
+        "chats_today": (
+            db.query(func.count(ChatHistory.id))
+            .filter(ChatHistory.created_at >= start_of_day)
+            .scalar()
+            or 0
+        ),
+        # --- Pemakaian AI (sumber: ai_usage_logs) ---
+        "ai_replies_today": (
+            db.query(func.count(AiUsageLog.id))
+            .filter(AiUsageLog.created_at >= start_of_day)
+            .scalar()
+            or 0
+        ),
+        "ai_cost_month": float(
+            db.query(func.coalesce(func.sum(AiUsageLog.total_cost), 0))
+            .filter(AiUsageLog.created_at >= start_of_month)
+            .scalar()
+            or 0
+        ),
+        # --- Hasil unreg DCB (sumber: audit dcb_api_logs) ---
+        "unreg_success": (
+            db.query(func.count(DcbApiLog.id))
+            .filter(
+                DcbApiLog.tool_name == "unsubscribe_service",
+                DcbApiLog.success.is_(True),
+            )
+            .scalar()
+            or 0
+        ),
+        # --- Moderasi / human takeover ---
+        "blocked_users": (
+            db.query(func.count(User.id)).filter(User.is_blocked.is_(True)).scalar() or 0
+        ),
+        "manual_mode_users": (
+            db.query(func.count(User.id))
+            .filter(User.is_manual_mode.is_(True))
+            .scalar()
+            or 0
+        ),
     }
 
-    # 5 order terbaru untuk tabel ringkasan
+    # 5 aktivitas chat terbaru untuk tabel ringkasan dashboard
     recent = (
-        db.query(Order)
-        .options(joinedload(Order.payment))
-        .order_by(Order.created_at.desc())
+        db.query(ChatHistory)
+        .options(joinedload(ChatHistory.user))
+        .order_by(ChatHistory.created_at.desc())
         .limit(5)
         .all()
     )
-    stats["recent_orders"] = [serialize_order(o, with_items=False) for o in recent]
+    stats["recent_chats"] = [
+        {
+            "full_name": (c.user.full_name if c.user else None) or "Tidak dikenal",
+            "platform_id": c.user.platform_id if c.user else "-",
+            "channel": c.user.channel if c.user else "-",
+            "agent_id": c.agent_id,
+            "input": (c.input or "")[:100],
+            "created_at": _iso(c.created_at),
+        }
+        for c in recent
+    ]
 
     return ok(data=stats)
 

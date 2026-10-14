@@ -173,10 +173,6 @@ function applyRbacUi() {
   document.querySelectorAll("[data-superadmin-only]").forEach((el) => {
     el.classList.toggle("hidden", !isSuper);
   });
-  // Tombol tambah produk juga khusus superadmin
-  const addProductBtn = document.getElementById("btn-add-product");
-  addProductBtn.classList.toggle("hidden", !isSuper);
-  addProductBtn.classList.toggle("flex", isSuper);
 }
 
 // ---------------------------------------------------------------------
@@ -262,49 +258,44 @@ async function renderDashboard() {
   const s = res.data;
 
   // Chart paralel: kegagalan endpoint chart tidak boleh menggagalkan
-  // render kartu statistik & tabel pesanan.
+  // render kartu statistik & tabel aktivitas.
   renderDashboardCharts().catch((e) => showToast(e.message, "error"));
 
+  // Kartu statistik khusus aplikasi Customer Service (fitur pulsa sudah
+  // dimatikan): aktivitas percakapan, pemakaian AI, hasil unreg DCB,
+  // dan moderasi (blokir / mode manual).
   const cards = [
     {
-      label: "Total Pendapatan", value: formatIDR(s.total_revenue), color: "bg-green-500",
-      trend: "↑ 12%", trendClass: "text-emerald-500",
-      icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/>`,
-    },
-    {
-      label: "Pesanan Pending", value: s.pending_orders, color: "bg-yellow-500",
-      trend: "↓ 3%", trendClass: "text-amber-500",
-      icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>`,
-    },
-    {
-      label: "Total Produk", value: s.total_products, color: "bg-fuchsia-500",
-      trend: "↑ 5%", trendClass: "text-emerald-500",
-      icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>`,
-    },
-    {
-      label: "Total Pesanan", value: s.total_orders, color: "bg-blue-500",
-      trend: "↑ 9%", trendClass: "text-emerald-500",
-      icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007zM8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm7.5 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/>`,
-    },
-    {
-      label: "Pesanan Sukses", value: s.success_orders, color: "bg-emerald-500",
-      trend: "↑ 15%", trendClass: "text-emerald-500",
-      icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>`,
-    },
-    {
-      label: "Pesanan Gagal", value: s.failed_orders, color: "bg-red-500",
-      trend: "↓ 2%", trendClass: "text-rose-500",
-      icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>`,
-    },
-    {
       label: "Total Pelanggan", value: s.total_customers, color: "bg-orange-400",
-      trend: "↑ 7%", trendClass: "text-emerald-500",
       icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"/>`,
     },
     {
       label: "Chat Hari Ini", value: s.chats_today, color: "bg-purple-500",
-      trend: "↑ 21%", trendClass: "text-emerald-500",
       icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155"/>`,
+    },
+    {
+      label: "Total Chat", value: s.total_chats, color: "bg-blue-500",
+      icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4-.8l-3.5 1.5 1.2-3.2C4.2 15.9 3 14.1 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>`,
+    },
+    {
+      label: "Balasan AI Hari Ini", value: s.ai_replies_today, color: "bg-teal-500",
+      icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9.5 16.75c-.283.66-.68 1.256-1.178 1.77a5.517 5.517 0 01-1.82 1.187 5.5 5.5 0 01-4.29.093 5.486 5.486 0 01-1.817-1.13 5.5 5.5 0 01-1.664-4.238 5.5 5.5 0 011.596-3.988m8.916 8.457L12 21l3.5-3.5m-3.187 2.404l.844-.844m6.255-6.256l.844-.844M18.596 8.5l.844-.844M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-8.5 5.5a7.5 7.5 0 01-7.5-7.5 7.5 7.5 0 017.5-7.5 7.5 7.5 0 017.5 7.5 7.5 7.5 0 01-7.5 7.5z"/>`,
+    },
+    {
+      label: "Biaya AI Bulan Ini", value: formatIDR(s.ai_cost_month), color: "bg-indigo-500",
+      icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/>`,
+    },
+    {
+      label: "Unreg Berhasil", value: s.unreg_success, color: "bg-emerald-500",
+      icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>`,
+    },
+    {
+      label: "Pengguna Diblokir", value: s.blocked_users, color: "bg-red-500",
+      icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>`,
+    },
+    {
+      label: "Mode Manual Aktif", value: s.manual_mode_users, color: "bg-amber-500",
+      icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>`,
     },
   ];
 
@@ -316,10 +307,6 @@ async function renderDashboard() {
         <div class="min-w-0">
           <p class="text-xs font-medium uppercase tracking-wide text-slate-500">${esc(c.label)}</p>
           <p class="text-3xl font-extrabold tracking-tighter text-black mt-0.5">${esc(c.value)}</p>
-          <p class="mt-1 text-sm">
-            <span class="${c.trendClass} font-medium">${c.trend}</span>
-            <span class="text-slate-400">dari bulan lalu</span>
-          </p>
         </div>
         <svg class="w-12 h-12 text-slate-200 flex-shrink-0 ml-auto" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
           ${c.icon}
@@ -328,20 +315,22 @@ async function renderDashboard() {
     )
     .join("");
 
-  recentEl.innerHTML = s.recent_orders.length
-    ? s.recent_orders
+  // Ringkasan aktivitas chat terbaru (pengganti "Pesanan Terbaru")
+  recentEl.innerHTML = s.recent_chats && s.recent_chats.length
+    ? s.recent_chats
         .map(
-          (o) => `
+          (c) => `
         <tr class="hover:bg-slate-50 transition-colors">
-          <td class="px-5 py-3 font-mono text-xs">${esc(o.invoice_number)}</td>
-          <td class="px-5 py-3">${statusBadge(o.status)}</td>
-          <td class="px-5 py-3">${statusBadge(o.payment_status)}</td>
-          <td class="px-5 py-3 font-semibold">${formatIDR(o.total_amount)}</td>
-          <td class="px-5 py-3 text-slate-500">${formatDateTime(o.created_at)}</td>
+          <td class="px-5 py-3 font-semibold text-slate-800">${esc(c.full_name)}</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-500">${esc(c.platform_id)}</td>
+          <td class="px-5 py-3">${statusBadge(c.channel)}</td>
+          <td class="px-5 py-3"><span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-600">${esc(c.agent_id)}</span></td>
+          <td class="px-5 py-3 text-slate-600 max-w-xs truncate" title="${esc(c.input)}">${esc(c.input)}</td>
+          <td class="px-5 py-3 text-slate-500">${formatDateTime(c.created_at)}</td>
         </tr>`
         )
         .join("")
-    : emptyRow(5);
+    : emptyRow(6);
 }
 
 // =====================================================================
@@ -440,240 +429,6 @@ async function renderDashboardCharts() {
       },
     });
   }
-}
-
-// =====================================================================
-// VIEW: PRODUCTS
-// =====================================================================
-async function renderProducts() {
-  const tbody = document.getElementById("products-tbody");
-  setLoading(tbody);
-
-  const res = await Api.get("/products");
-  const products = res.data;
-
-  const isSuper = App.user && App.user.role === "superadmin";
-  tbody.innerHTML = products.length
-    ? products
-        .map(
-          (p) => `
-      <tr class="hover:bg-slate-50 transition-colors">
-        <td class="px-5 py-3 text-slate-400">${p.id}</td>
-        <td class="px-5 py-3 font-semibold text-slate-800">${esc(p.name)}</td>
-        <td class="px-5 py-3">
-          <span class="${p.qty > 0 ? "text-slate-700" : "text-red-600 font-bold"}">${p.qty}</span>
-        </td>
-        <td class="px-5 py-3 font-semibold">${formatIDR(p.price)}</td>
-        <td class="px-5 py-3 text-slate-500 max-w-xs truncate" title="${esc(p.description || "")}">${esc(p.description || "-")}</td>
-        <td class="px-5 py-3 text-slate-500 text-xs">${formatDateTime(p.created_at)}</td>
-        <td class="px-5 py-3 text-right whitespace-nowrap">
-          ${
-            isSuper
-              ? `
-          <button data-action="edit" data-id="${p.id}" class="text-gray-900 hover:opacity-60 font-medium mr-3">Edit</button>
-          <button data-action="delete" data-id="${p.id}" class="text-red-600 hover:text-red-800 font-medium">Hapus</button>`
-              : `<span class="text-xs text-slate-400">read-only</span>`
-          }
-        </td>
-      </tr>`
-        )
-        .join("")
-    : emptyRow(7);
-
-  // Delegasi aksi edit / hapus
-  tbody.querySelectorAll("button[data-action]").forEach((btn) => {
-    const product = products.find((p) => p.id === parseInt(btn.dataset.id, 10));
-    if (btn.dataset.action === "edit") {
-      btn.addEventListener("click", () => openProductModal(product));
-    } else {
-      btn.addEventListener("click", () => deleteProduct(product));
-    }
-  });
-}
-
-/** Buka modal produk; tanpa argumen = mode tambah. */
-function openProductModal(product = null) {
-  document.getElementById("product-modal-title").textContent = product ? "Edit Produk" : "Tambah Produk";
-  document.getElementById("product-id").value = product ? product.id : "";
-  document.getElementById("product-name").value = product ? product.name : "";
-  document.getElementById("product-qty").value = product ? product.qty : "";
-  document.getElementById("product-price").value = product ? product.price : "";
-  document.getElementById("product-description").value = product ? product.description || "" : "";
-  openModal("modal-product");
-}
-
-async function handleProductSubmit(event) {
-  event.preventDefault();
-  const id = document.getElementById("product-id").value;
-  const payload = {
-    name: document.getElementById("product-name").value.trim(),
-    qty: parseInt(document.getElementById("product-qty").value, 10),
-    price: parseFloat(document.getElementById("product-price").value),
-    description: document.getElementById("product-description").value.trim(),
-  };
-  try {
-    if (id) {
-      await Api.put(`/products/${id}`, payload);
-      showToast("Produk berhasil diperbarui.");
-    } else {
-      await Api.post("/products", payload);
-      showToast("Produk berhasil ditambahkan.");
-    }
-    closeModal("modal-product");
-    renderProducts();
-  } catch (e) {
-    showToast(e.message, "error");
-  }
-}
-
-async function deleteProduct(product) {
-  openConfirm({
-    title: "Hapus Produk",
-    message: `Produk "${product.name}" akan dihapus permanen. Lanjutkan?`,
-    confirmText: "Ya, Hapus",
-    danger: true,
-    onConfirm: async () => {
-      try {
-        await Api.del(`/products/${product.id}`);
-        showToast("Produk berhasil dihapus.");
-        renderProducts();
-      } catch (e) {
-        showToast(e.message, "error");
-      }
-    },
-  });
-}
-
-// =====================================================================
-// VIEW: ORDERS
-// =====================================================================
-// State filter, pencarian invoice, & halaman dipertahankan selagi render
-const ordersState = { status: "", search: "", page: 1 };
-// Order yang sedang dibuka di modal detail
-let currentOrder = null;
-
-async function renderOrders(page = 1) {
-  ordersState.page = page;
-  const tbody = document.getElementById("orders-tbody");
-  setLoading(tbody);
-
-  const res = await Api.get("/orders", {
-    status: ordersState.status,
-    search: ordersState.search,
-    page,
-  });
-  const { items, meta } = res.data;
-
-  tbody.innerHTML = items.length
-    ? items
-        .map(
-          (o) => `
-      <tr class="hover:bg-slate-50 transition-colors">
-        <td class="px-5 py-3 font-mono text-xs">${esc(o.invoice_number)}</td>
-        <td class="px-5 py-3">${statusBadge(o.status)}</td>
-        <td class="px-5 py-3">${statusBadge(o.payment_status)}</td>
-        <td class="px-5 py-3">${o.total_items} item</td>
-        <td class="px-5 py-3">${formatIDR(o.sub_amount)}</td>
-        <td class="px-5 py-3">${formatIDR(o.tax)}</td>
-        <td class="px-5 py-3 font-semibold">${formatIDR(o.total_amount)}</td>
-        <td class="px-5 py-3 text-slate-500 text-xs">${formatDateTime(o.created_at)}</td>
-        <td class="px-5 py-3 text-right">
-          <button data-id="${o.id}" data-action="detail" class="text-gray-900 hover:opacity-60 font-medium">Detail</button>
-        </td>
-      </tr>`
-        )
-        .join("")
-    : emptyRow(9);
-
-  tbody.querySelectorAll("button[data-action='detail']").forEach((btn) => {
-    btn.addEventListener("click", () => openOrderModal(parseInt(btn.dataset.id, 10)));
-  });
-
-  renderPagination(document.getElementById("orders-pagination"), meta, renderOrders);
-}
-
-/** Buka modal detail pesanan (ambil data lengkap termasuk items). */
-async function openOrderModal(orderId) {
-  const body = document.getElementById("order-detail-body");
-  const verifyBtn = document.getElementById("btn-verify-payment");
-  setLoading(body);
-  verifyBtn.classList.add("hidden");
-  openModal("modal-order");
-
-  const res = await Api.get(`/orders/${orderId}`);
-  currentOrder = res.data;
-  const o = currentOrder;
-
-  body.innerHTML = `
-    <dl class="grid grid-cols-2 gap-4 text-sm">
-      <div><dt class="text-slate-500">Invoice</dt><dd class="font-mono font-semibold">${esc(o.invoice_number)}</dd></div>
-      <div><dt class="text-slate-500">Dibuat</dt><dd>${formatDateTime(o.created_at)}</dd></div>
-      <div><dt class="text-slate-500">Status Order</dt><dd>${statusBadge(o.status)}</dd></div>
-      <div><dt class="text-slate-500">Status Pembayaran</dt><dd>${statusBadge(o.payment_status)}</dd></div>
-    </dl>
-
-    <div class="mt-5 overflow-x-auto rounded-xl shadow-sm">
-      <table class="w-full text-sm text-left">
-        <thead class="bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-          <tr><th class="px-4 py-2.5">Produk</th><th class="px-4 py-2.5">Qty</th><th class="px-4 py-2.5">Total Item</th></tr>
-        </thead>
-        <tbody class="divide-y divide-slate-100">
-          ${
-            o.items.length
-              ? o.items
-                  .map(
-                    (i) => `
-            <tr>
-              <td class="px-4 py-2.5">${esc(i.product_name || `Produk #${i.product_id}`)}</td>
-              <td class="px-4 py-2.5">${i.qty}</td>
-              <td class="px-4 py-2.5">${i.total_items}</td>
-            </tr>`
-                  )
-                  .join("")
-              : `<tr><td colspan="3" class="px-4 py-6 text-center text-slate-400">Tidak ada item</td></tr>`
-          }
-        </tbody>
-      </table>
-    </div>
-
-    <div class="mt-5 space-y-1.5 text-sm">
-      <div class="flex justify-between"><span class="text-slate-500">Subtotal (${o.total_items} item)</span><span>${formatIDR(o.sub_amount)}</span></div>
-      <div class="flex justify-between"><span class="text-slate-500">Pajak</span><span>${formatIDR(o.tax)}</span></div>
-      <div class="flex justify-between text-base font-bold border-t border-slate-200 pt-2">
-        <span>Total</span><span class="text-gray-900 font-bold">${formatIDR(o.total_amount)}</span>
-      </div>
-    </div>`;
-
-  // Tombol verifikasi hanya tampil saat order 'pending' & pembayaran
-  // 'unpaid' — untuk order 'success' + 'paid' tombol disembunyikan agar
-  // admin tidak bisa memverifikasi dua kali.
-  const canVerify = o.status === "pending" && o.payment_status === "unpaid";
-  verifyBtn.classList.toggle("hidden", !canVerify);
-}
-
-/** Verifikasi pembayaran: payment -> 'paid', order -> 'success',
- *  dan stok produk berkurang. Dikonfirmasi lewat modal, bukan window.confirm. */
-function verifyCurrentOrder() {
-  if (!currentOrder) return;
-  openConfirm({
-    title: "Verifikasi Pembayaran",
-    message: `Tandai pembayaran ${currentOrder.invoice_number} sebagai 'paid', ubah status pesanan menjadi 'success', dan kurangi stok produk?`,
-    confirmText: "Ya, Verifikasi",
-    danger: false,
-    onConfirm: async () => {
-      try {
-        const res = await Api.patch(`/orders/${currentOrder.id}/verify-payment`);
-        showToast(res.message || "Pembayaran diverifikasi & stok dikurangi.");
-        // Segarkan daftar pesanan di belakang modal, lalu render ulang isi
-        // modal tanpa reload halaman — status kini 'success' sehingga
-        // tombol verifikasi otomatis disembunyikan.
-        renderOrders(ordersState.page);
-        await openOrderModal(currentOrder.id);
-      } catch (e) {
-        showToast(e.message, "error");
-      }
-    },
-  });
 }
 
 // =====================================================================
@@ -2004,27 +1759,9 @@ document.addEventListener("DOMContentLoaded", () => {
     el.addEventListener("click", stopWahaQrPolling);
   });
 
-  // Form produk & admin
-  document.getElementById("product-form").addEventListener("submit", handleProductSubmit);
+  // Form admin
   document.getElementById("admin-form").addEventListener("submit", handleAdminSubmit);
-  document.getElementById("btn-add-product").addEventListener("click", () => openProductModal());
   document.getElementById("btn-add-admin").addEventListener("click", () => openAdminModal());
-
-  // Filter status pesanan
-  document.getElementById("order-status-filter").addEventListener("change", (event) => {
-    ordersState.status = event.target.value;
-    renderOrders(1);
-  });
-
-  // Pencarian nomor invoice (dengan debounce agar tidak spam request)
-  let searchTimer = null;
-  document.getElementById("order-search").addEventListener("input", (event) => {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => {
-      ordersState.search = event.target.value.trim();
-      renderOrders(1);
-    }, 300);
-  });
 
   // Tombol persetujuan modal konfirmasi: jalankan aksi tersimpan
   document.getElementById("confirm-ok").addEventListener("click", () => {
@@ -2033,9 +1770,6 @@ document.addEventListener("DOMContentLoaded", () => {
     closeModal("modal-confirm");
     if (action) action();
   });
-
-  // Verifikasi pembayaran dari modal detail pesanan
-  document.getElementById("btn-verify-payment").addEventListener("click", verifyCurrentOrder);
 
   // Agent Config: tombol "+ Tambah Agent" -> modal; form modal -> POST /agents;
   // tombol Kembali -> daftar (klik kartu dipasang di renderAgentCards karena
