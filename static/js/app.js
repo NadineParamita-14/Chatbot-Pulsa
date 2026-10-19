@@ -441,7 +441,7 @@ async function renderDashboardCharts() {
 // Kontak diidentifikasi lewat user_id (users.id) — mendukung pengguna
 // Telegram maupun WhatsApp (kolom channel/platform_id).
 // =====================================================================
-const chatsState = { agentId: null, activeId: null, users: [], isManualMode: false, channelFilter: "all", unreadIds: new Set() };
+const chatsState = { agentId: null, activeId: null, users: [], isManualMode: false, channelFilter: "all" };
 
 // Tombol filter channel pane kiri chat: Semua (default, abu gelap netral) /
 // WhatsApp (hijau) / Telegram (biru). Nonaktif = abu redup.
@@ -637,7 +637,7 @@ function renderChatUserList() {
             <p class="text-xs text-slate-500 font-mono truncate">${esc(u.platform_id || "")}</p>
             <span class="flex items-center gap-1 flex-shrink-0">
               ${channelBadge}
-              ${chatsState.unreadIds.has(u.user_id) ? `<span class="unread-dot w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0" title="Pesan belum dibaca"></span>` : ""}
+              ${u.user_id !== chatsState.activeId ? unreadBadgeHTML(u.unread_count) : ""}
               ${u.is_manual_mode ? `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600 font-semibold">Manual</span>` : ""}
               <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">${u.total_messages} pesan</span>
             </span>
@@ -653,13 +653,33 @@ function renderChatUserList() {
   });
 }
 
-/** Klik kontak: ambil & render percakapan, lalu gulir ke bawah. */
+/** Badge lingkaran bernomor "belum dibaca" — hanya tampil bila count > 0. */
+function unreadBadgeHTML(count) {
+  const n = Number(count || 0);
+  if (n <= 0) return "";
+  return `<span class="unread-badge min-w-[1.25rem] h-5 px-1.5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0" title="${n} pesan belum dibaca">${n > 99 ? "99+" : n}</span>`;
+}
+
+/** Klik kontak: ambil & render percakapan, lalu gulir ke bawah.
+ *  Badge unread dihapus di UI, lalu hitungan di DB direset di belakang
+ *  layar lewat POST /api/sessions/<id>/mark_read. */
 async function selectChatUser(userId) {
   chatsState.activeId = userId;
-  chatsState.unreadIds.delete(userId); // badge unread dibersihkan saat dibuka
-  renderChatUserList(); // perbarui sorotan kontak aktif
+  const user = chatsState.users.find((u) => u.user_id === userId);
+  if (user && (user.unread_count || 0) > 0) {
+    user.unread_count = 0; // kosongkan segera di state lokal
+    markSessionRead(user.session_id); // reset DB di belakang layar
+  }
+  renderChatUserList(); // perbarui sorotan kontak aktif (badge hilang)
   paintChatPanes();     // di mobile: pindah dari daftar ke jendela chat
   await loadChatConversation(userId);
+}
+
+/** Reset unread_count percakapan di database (best-effort, tanpa await
+ *  wajib — kegagalan jaringan tidak boleh mengganggu alasan admin). */
+function markSessionRead(sessionId) {
+  if (!sessionId) return;
+  Api.post(`/sessions/${sessionId}/mark_read`).catch(() => {});
 }
 
 /** Ambil riwayat percakapan pengguna dan render sebagai gelembung.
@@ -789,8 +809,10 @@ function buildIncomingBubbleHTML(data) {
 
 /** Update DOM Riwayat Chat akibat pesan masuk:
  *  1. Kartu user di sidebar di-prepend ke atas (urutan terbaru).
- *  2. Titik merah unread — kecuali chatnya memang sedang dibuka.
- *  3. Chat aktif yang cocok langsung menerima bubble pesan barunya.
+ *  2. Badge unread bernomor — diambil dari unread_count hasil increment
+ *     di database (payload Socket.IO), bukan dihitung manual di frontend.
+ *  3. Chat aktif yang cocok langsung menerima bubble pesan barunya; admin
+ *     sedang membaca -> hitungan di DB direset otomatis (mark_read).
  * Kontak yang belum ada di daftar -> daftar di-refresh dari server. */
 function handleIncomingMessageUi(data) {
   if (currentRouteName() !== "chats") return;  // bukan halaman Riwayat Chat
@@ -800,26 +822,39 @@ function handleIncomingMessageUi(data) {
   if (!listEl) return;
 
   const isActiveChat = chatsState.activeId === data.user_id;
-  if (!isActiveChat) chatsState.unreadIds.add(data.user_id);
+  const user = chatsState.users.find((u) => u.user_id === data.user_id);
+  if (user) {
+    user.unread_count = data.unread_count ?? user.unread_count;
+    user.session_id = data.session_id ?? user.session_id;
+  }
 
   const card = listEl.querySelector(`button[data-user-id="${data.user_id}"]`);
   if (card) {
     listEl.prepend(card); // pesan terbaru selalu di atas
-    if (!isActiveChat && !card.querySelector(".unread-dot")) {
-      const dot = document.createElement("span");
-      dot.className = "unread-dot w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0";
-      dot.title = "Pesan belum dibaca";
-      card.querySelector("span.flex.items-center.gap-1")?.appendChild(dot);
+
+    // Perbarui badge unread pada kartu sesuai angka terbaru dari DB
+    card.querySelector(".unread-badge")?.remove();
+    if (!isActiveChat) {
+      const badgeHost = card.querySelector("span.flex.items-center.gap-1");
+      if (badgeHost && user) {
+        badgeHost.insertAdjacentHTML("afterbegin", unreadBadgeHTML(user.unread_count));
+      }
     }
   } else {
     // Kartu belum ada (kontak baru) — ambil ulang daftar dari server;
-    // titik unread-nya dirender otomatis dari chatsState.unreadIds.
+    // badge-nya dirender otomatis dari unread_count hasil query DB.
     renderChatUserListPane().catch(() => {});
     return;
   }
 
-  // Chat yang sedang dibuka -> suntik bubble pesan masuk + scroll ke bawah
+  // Chat yang sedang dibuka -> suntik bubble pesan masuk + scroll ke bawah;
+  // admin jelas sedang membaca -> reset hitungan di DB secara diam-diam
+  // agar badge tidak muncul palsu saat daftar berikutnya dimuat.
   if (isActiveChat) {
+    if (user && user.unread_count > 0) {
+      user.unread_count = 0;
+      markSessionRead(user.session_id);
+    }
     const bubblesEl = document.getElementById("chat-bubbles");
     if (bubblesEl) {
       bubblesEl.insertAdjacentHTML("beforeend", buildIncomingBubbleHTML(data));

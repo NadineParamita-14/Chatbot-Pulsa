@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy import (
-    create_engine, Column, Integer, String, Text, Float, DateTime, ForeignKey, Numeric, Enum, Boolean
+    create_engine, Column, Integer, String, Text, Float, DateTime, ForeignKey, Numeric, Enum, Boolean,
+    UniqueConstraint
 )
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
@@ -196,6 +197,44 @@ class ChatHistory(Base):
 
     user = relationship("User", back_populates="histories")
     agent = relationship("AgentConfig", back_populates="histories")
+
+
+# ==========================================
+# 5b. Tabel Sesi Percakapan (unread utk Admin Panel)
+# Satu baris = satu percakapan user <-> agent. Melacak jumlah pesan
+# pelanggan yang BELUM ditinjau admin manusia (badge "Unread" di Riwayat
+# Chat): naik tiap pesan pelanggan masuk via webhook, kembali 0 saat
+# admin membuka percakapan (mark_read). Balasan AI/admin TIDAK menaikkan.
+# ==========================================
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    agent_id = Column(
+        String(50),
+        ForeignKey("agent_configs.agent_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Jumlah pesan pelanggan yang belum ditinjau admin manusia.
+    unread_count = Column(Integer, default=0, nullable=False)
+
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "agent_id", name="uq_chat_sessions_user_agent"),
+    )
+
+    user = relationship("User")
+    agent = relationship("AgentConfig")
 
 
 # ==========================================

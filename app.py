@@ -101,6 +101,8 @@ from db_service import (  # noqa: E402
     is_user_blocked,
     is_user_in_manual_mode,
     mark_order_as_paid,
+    mark_chat_session_read,
+    register_incoming_message,
     save_chat_history,
     set_user_blocked,
 )
@@ -1018,6 +1020,26 @@ def toggle_manual_mode(user_id: int):
     return ok(
         data={"user_id": user.id, "is_manual_mode": user.is_manual_mode},
         message=f"Manual Mode {status_txt}.",
+    )
+
+
+@app.route("/api/sessions/<int:session_id>/mark_read", methods=["POST"])
+@admin_required
+@api_endpoint
+def mark_session_read(session_id: int):
+    """Tandai percakapan sudah dibaca admin: reset unread_count -> 0.
+
+    Dipanggil Admin Panel saat admin membuka chat dari sidebar (badge
+    belum-dibaca dihapus di UI lalu hitungan di DB direset di belakang
+    layar). Balasan AI/admin tidak pernah menaikkan hitungan ini, jadi
+    reset di sini aman dilakukan berulang.
+    """
+    found = mark_chat_session_read(session_id)
+    if not found:
+        return err("Sesi percakapan tidak ditemukan.", 404)
+    return ok(
+        data={"session_id": session_id, "unread_count": 0},
+        message="Percakapan ditandai sudah dibaca.",
     )
 
 
@@ -2384,14 +2406,16 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
 
 
 def _emit_new_incoming_message(user: User, platform: str, agent_id: str,
-                               snippet: str) -> None:
+                               snippet: str, session_id: int = None,
+                               unread_count: int = 0) -> None:
     """Emit 'new_incoming_message' ke seluruh Admin Panel yang terhubung.
 
     Dipanggil kedua webhook (Telegram & WhatsApp) begitu pesan pelanggan
     diterima — SEBELUM AI diproses — supaya admin langsung mendengar
     notifikasi dan UI Riwayat Chat terupdate real-time. Payload:
     user_id (id DB, cocok dgn data-user-id kartu sidebar), name,
-    platform ('whatsapp'/'telegram'), agent_id, message_snippet, timestamp.
+    platform ('whatsapp'/'telegram'), agent_id, message_snippet, timestamp,
+    session_id + unread_count terbaru (badge belum dibaca di sidebar).
     Best-effort: kegagalan emit tidak boleh menggagalkan webhook.
     """
     try:
@@ -2402,6 +2426,8 @@ def _emit_new_incoming_message(user: User, platform: str, agent_id: str,
             "agent_id": agent_id,
             "message_snippet": (snippet or "")[:120],
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "session_id": session_id,
+            "unread_count": unread_count,
         })
     except Exception as e:
         print(f"[SOCKET.IO] Gagal emit new_incoming_message: {e}")
@@ -2472,9 +2498,13 @@ def telegram_webhook(agent_id: str):
         print(f"[WEBHOOK:{agent_id}] Gagal mencatat user {user_id} — update dilewati.")
         return jsonify({"status": "ok"}), 200
 
+    # Badge belum-dibaca admin manusia: pesan pelanggan selalu menaikkan
+    # unread_count sesi (balasan AI/admin tidak — lihat register_incoming_message).
+    session_id, unread_count = register_incoming_message(user.id, agent_id)
     # Notifikasi real-time ke Admin Panel (suara/push/UI) — dikirim segera,
     # tidak menunggu proses AI selesai.
-    _emit_new_incoming_message(user, "telegram", agent_id, user_text)
+    _emit_new_incoming_message(user, "telegram", agent_id, user_text,
+                               session_id=session_id, unread_count=unread_count)
 
     # Otak AI: proses, simpan riwayat, kirim balasan (semua di helper)
     _process_agent_message(agent_id, user, user_text, image_bytes=image_bytes)
@@ -2602,8 +2632,11 @@ def whatsapp_webhook():
         # Resolve LID -> nomor WA asli (kolom username) sekali di awal;
         # best-effort, tidak menggagalkan balasan bila WAHA bermasalah.
         _resolve_wa_number(user, session_name)
-        # Notifikasi real-time ke Admin Panel — segera saat pesan diterima.
-        _emit_new_incoming_message(user, "whatsapp", agent_id, user_text)
+        # Badge belum-dibaca admin manusia + notifikasi real-time ke Admin
+        # Panel — segera saat pesan diterima.
+        session_id, unread_count = register_incoming_message(user.id, agent_id)
+        _emit_new_incoming_message(user, "whatsapp", agent_id, user_text,
+                                   session_id=session_id, unread_count=unread_count)
         _process_agent_message(agent_id, user, user_text,
                                image_bytes=image_bytes,
                                reply_target=raw_from, waha_session=session_name)

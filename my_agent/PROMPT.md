@@ -1813,3 +1813,27 @@ Please refactor the backend (`app.py`, `agent.py`, `db_service.py`, and models) 
 2. The search query MUST strictly filter results so that `agent A` only retrieves context from documents where `knowledge_base.agent_id == A`.
 
 Please confirm you understand this architecture shift and provide the updated Python code for these layers. Ensure the existing 3-Stage Guardrail logic inside the prompts can still work when loaded dynamically from the DB.
+
+# Context
+In our Flask Admin Panel, we want to add an "Unread Messages" indicator (badge) for human Customer Service agents. Even if the AI agent automatically replies to a user, the human admin still needs to see a badge indicating that the user has sent new messages that the admin hasn't reviewed yet.
+
+# Task
+Please implement an `unread_count` tracking system for human admins. This requires updates to the database, backend routes, and frontend JavaScript/UI.
+
+## Step 1: Database Model Update
+1. Add an `unread_count` integer column (default: 0) to the table that stores chat sessions/conversations.
+2. In the WhatsApp/Telegram webhook (`app.py`), whenever a new message is received from a **Customer/User**, increment this `unread_count` by 1 in the database. (Do not increment it when the AI or Admin sends a reply).
+
+## Step 2: Backend API for Marking as Read
+1. Create a new Flask route (e.g., `POST /api/sessions/<session_id>/mark_read`).
+2. This route should reset the `unread_count` to 0 for the given session in the database and return a success JSON response.
+
+## Step 3: Frontend UI and JavaScript (`chats.html` / Dashboard)
+1. **Initial Load:** When rendering the sidebar chat list, if `unread_count > 0`, display a visual badge (e.g., a small circle with the number) next to the user's name or platform tag.
+2. **WebSocket Integration:** Inside our existing `new_incoming_message` Socket.IO listener:
+   - If the incoming message is from a user, and that user's chat is NOT currently the active (opened) chat on the right panel, dynamically increment their unread badge count in the sidebar.
+3. **Click Event (Mark as Read):** When the admin clicks a chat in the sidebar to open the conversation:
+   - Immediately hide or remove the unread badge from the DOM.
+   - Fire a `fetch()` or AJAX POST request to the `/api/sessions/<session_id>/mark_read` endpoint to reset the count in the database behind the scenes.
+
+Please provide the necessary Python backend code and the frontend JavaScript/HTML modifications to achieve this. Ensure the badge styling looks modern (e.g., using Bootstrap/Tailwind badge classes if applicable).

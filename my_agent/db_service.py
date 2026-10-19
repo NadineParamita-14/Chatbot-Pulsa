@@ -9,6 +9,7 @@ from models import (
     AgentConfig,
     AiUsageLog,
     ChatHistory,
+    ChatSession,
     DcbApiLog,
     Document,
     RagDocument,
@@ -383,6 +384,69 @@ def get_last_10_history(user_id: int, agent_id: str):
         session.close()
 
 
+def register_incoming_message(user_id: int, agent_id: str) -> tuple[int, int]:
+    """Catat pesan pelanggan masuk: naikkan unread_count sesi percakapan.
+
+    Dipanggil webhook WA/Telegram utk SETIAP pesan pelanggan (balasan
+    AI/admin TIDAK lewat sini — badge hanya menghitung pesan yang belum
+    ditinjau admin manusia). Upsert baris chat_sessions (user, agent):
+    belum ada -> dibuat dgn unread_count=1; sudah ada -> +1.
+
+    Returns: (session_id, unread_count_terbaru) — disertakan ke payload
+    Socket.IO supaya badge frontend tinggal memakai angka dari DB.
+    """
+    session = SessionLocal()
+    try:
+        row = (
+            session.query(ChatSession)
+            .filter_by(user_id=user_id, agent_id=agent_id)
+            .first()
+        )
+        if row is None:
+            row = ChatSession(user_id=user_id, agent_id=agent_id, unread_count=1)
+            session.add(row)
+            session.flush()
+        else:
+            row.unread_count = (row.unread_count or 0) + 1
+        session.commit()
+        return row.id, row.unread_count
+    except IntegrityError:
+        # Balapan dua webhook serentak utk sesi baru: ulang sekali sbg update.
+        session.rollback()
+        row = (
+            session.query(ChatSession)
+            .filter_by(user_id=user_id, agent_id=agent_id)
+            .first()
+        )
+        if row is None:
+            return 0, 0
+        row.unread_count = (row.unread_count or 0) + 1
+        session.commit()
+        return row.id, row.unread_count
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def mark_chat_session_read(session_id: int) -> bool:
+    """Reset unread_count sesi percakapan menjadi 0 (admin sudah membaca).
+
+    Returns: True bila sesi ditemukan & direset, False bila tidak ada.
+    """
+    session = SessionLocal()
+    try:
+        row = session.get(ChatSession, session_id)
+        if row is None:
+            return False
+        row.unread_count = 0
+        session.commit()
+        return True
+    finally:
+        session.close()
+
+
 def get_chatted_users(agent_id: str):
     """Daftar pengguna unik yang pernah chat dengan SATU agent tertentu.
 
@@ -390,6 +454,8 @@ def get_chatted_users(agent_id: str):
     Diurutkan dari pesan terakhir (terbaru di atas). Identitas yang
     dikembalikan adalah user_id (users.id) plus channel/platform_id —
     bukan lagi telegram_id — agar mendukung multi-channel.
+    Disertakan juga session_id + unread_count percakapan (badge belum
+    dibaca di sidebar; NULL/0 = tidak ada pesan yang belum ditinjau).
     """
     session = SessionLocal()
     try:
@@ -405,8 +471,15 @@ def get_chatted_users(agent_id: str):
                 User.is_manual_mode,
                 func.max(ChatHistory.created_at).label("last_message_at"),
                 func.count(ChatHistory.id).label("total_messages"),
+                func.coalesce(ChatSession.id, None).label("session_id"),
+                func.coalesce(ChatSession.unread_count, 0).label("unread_count"),
             )
             .join(User, User.id == ChatHistory.user_id)
+            .outerjoin(
+                ChatSession,
+                (ChatSession.user_id == ChatHistory.user_id)
+                & (ChatSession.agent_id == ChatHistory.agent_id),
+            )
             .filter(ChatHistory.agent_id == agent_id)
             .group_by(
                 ChatHistory.user_id,
@@ -417,6 +490,8 @@ def get_chatted_users(agent_id: str):
                 User.full_name,
                 User.username,
                 User.is_manual_mode,
+                ChatSession.id,
+                ChatSession.unread_count,
             )
             .order_by(func.max(ChatHistory.created_at).desc())
             .all()
@@ -433,6 +508,8 @@ def get_chatted_users(agent_id: str):
                 "is_manual_mode": bool(r.is_manual_mode),
                 "total_messages": r.total_messages,
                 "last_message_at": r.last_message_at.isoformat() if r.last_message_at else None,
+                "session_id": r.session_id,
+                "unread_count": int(r.unread_count or 0),
             }
             for r in rows
         ]
