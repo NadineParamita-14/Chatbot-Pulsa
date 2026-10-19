@@ -1755,3 +1755,61 @@ Please add/update the following rules in the prompt's instructions or guardrails
 "JANGAN pernah berasumsi bahwa nomor WhatsApp yang digunakan pengguna untuk chat adalah nomor yang terdaftar pada layanan. Jika pengguna belum menyebutkan nomor HP yang ingin di-unreg, Anda WAJIB menanyakannya. Ketika pengguna memberikan nomor HP (contoh: 085156893448), Anda WAJIB mengubah format awalan '0' menjadi '62' (contoh: 6285156893448) secara internal sebelum memasukkannya ke dalam argumen tool `unsubscribe_service` atau `check_subscription_status`."
 
 Please output the exact modified Python code for `CS_AGENT_PROMPT` reflecting these strict guardrails. Do not break the existing 3-Stage workflow logic.
+
+# Context
+We are adding real-time WebSocket notifications to our Flask Admin Panel for incoming WhatsApp/Telegram messages. When a user sends a message, the admin should hear a notification sound, see a browser push notification, and the UI should update in real-time (sidebar reordering and message injection).
+
+# Instructions
+Please implement this feature step-by-step. Do not proceed to the next step until you have fully grasped the current one. Use `flask-socketio` for the backend.
+
+## Step 1: Backend Implementation (`app.py`)
+1. Ensure `flask-socketio` and `eventlet` are installed.
+2. Initialize `SocketIO` in `app.py` (`socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')`).
+3. Replace `app.run()` with `socketio.run()` in the main block.
+4. Locate the WhatsApp/Telegram webhook route. Immediately after successfully saving an incoming message to the database, emit a Socket.IO event named `new_incoming_message`. 
+5. The emitted payload should be a JSON/dict containing: `user_id`, `name`, `platform` (WA/TG), `message_snippet`, and `timestamp`.
+
+## Step 2: Frontend Notification Logic (HTML/JS)
+Locate the HTML file handling the "Riwayat Chat" page.
+1. Add the Socket.IO client library via CDN.
+2. Connect the client to the server: `const socket = io();`.
+3. Add a listener for `new_incoming_message`.
+4. **Browser Push Notification:** Inside the listener, check `Notification.permission`. If granted, trigger `new Notification("Pesan Baru dari " + data.name, {body: data.message_snippet})`. Add logic to request permission on page load if not already granted or denied.
+5. **Audio Notification:** Load the notification sound exactly from `/static/sounds/notif.mp3`. Play it when the event is received. Wrap `.play()` in a `.catch()` block to gracefully handle browser Autoplay Policy exceptions (e.g., `console.log("Autoplay blocked")`).
+
+## Step 3: Frontend Real-time UI Manipulation (DOM)
+Within the same `new_incoming_message` listener, update the DOM:
+1. **Sidebar Reordering:** Find the DOM element representing the user's card in the left sidebar. If it exists, detach it and prepend it to the top of the chat list. If it doesn't exist, create a new card for them at the top.
+2. **Unread Badge:** Add a small visual indicator (like a red dot or bold text) to that sidebar card to show it has unread messages.
+3. **Active Chat Injection:** Check if the currently opened chat in the right panel matches the `user_id` of the incoming message. If yes, dynamically append the new message bubble to the chat container and scroll to the bottom.
+
+Please analyze the codebase, confirm you understand these steps, and begin with Step 1. Output the specific file modifications clearly.
+
+# Context
+We are upgrading our Agentic Customer Service architecture to be fully dynamic and database-driven. Currently, agent configurations (like `CS_AGENT_PROMPT`, model selection, temperature, and knowledge base linking) are hardcoded in the Python backend. The user already has a frontend Admin Panel to configure these settings per agent (e.g., "waki_agent", "pulsa_agent"). 
+
+# Goal
+We want the ability to add new agents entirely via the Admin Panel UI without touching the backend code. When a message arrives, the system must dynamically load the correct agent's prompt, settings, and knowledge base from the database.
+
+# Task
+Please refactor the backend (`app.py`, `agent.py`, `db_service.py`, and models) step-by-step to support dynamic, multi-agent instances.
+
+## Step 1: Database Model Updates
+1. Ensure the `Agent` (or similar) table has the following columns: `agent_id`, `display_name`, `provider` (e.g., google), `model_name` (e.g., gemini-2.5-flash), `temperature` (float), `system_prompt` (text), and routing identifiers like `wa_session_id` and `telegram_token`.
+2. Ensure the `KnowledgeBase` (or `Documents`) table has a foreign key `agent_id` so documents belong to a specific agent.
+
+## Step 2: Dynamic Agent Initialization (`agent.py` or equivalent)
+1. Remove all hardcoded System Prompts (like `CS_AGENT_PROMPT`) from the codebase.
+2. Create a factory function or modify the initialization logic (e.g., `def create_agent(agent_id):`) that fetches the agent's configuration from the database.
+3. Dynamically inject the fetched `system_prompt`, `temperature`, and `model_name` into the Gemini API initialization (`genai.GenerativeModel(...)`).
+
+## Step 3: Webhook Routing (`app.py`)
+1. In the WhatsApp/Telegram webhook route, when a message arrives, identify the receiving bot (via WA session ID or Telegram token).
+2. Query the database to find which `agent_id` is assigned to this session.
+3. Pass the `agent_id` to the `create_agent` function to load the correct AI personality and logic before processing the user's message.
+
+## Step 4: Dynamic Knowledge Base (RAG) Filtering
+1. In the tool or function that searches the Vector DB / Knowledge Base, ensure you pass the `agent_id` as a filter parameter.
+2. The search query MUST strictly filter results so that `agent A` only retrieves context from documents where `knowledge_base.agent_id == A`.
+
+Please confirm you understand this architecture shift and provide the updated Python code for these layers. Ensure the existing 3-Stage Guardrail logic inside the prompts can still work when loaded dynamically from the DB.

@@ -105,8 +105,9 @@ async def reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     temperature = agent_config.temperature if agent_config else 0.3
     selected_model = getattr(agent_config, "model_name", "gemini-2.5-flash") or "gemini-2.5-flash"
 
-    # 3. Ambil knowledge base FAQ (harga, pembayaran, dsb)
-    rag_knowledge = get_all_rag_knowledge()
+    # 3. Ambil knowledge base FAQ (harga, pembayaran, dsb) — hanya dokumen
+    #    milik agent ini + dokumen bersama (filter RAG per-agent).
+    rag_knowledge = get_all_rag_knowledge(CURRENT_AGENT_ID)
 
     # 4. Susun instruksi khas Customer Service
     full_system_instruction = f"""{base_prompt}

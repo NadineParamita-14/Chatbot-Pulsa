@@ -137,6 +137,17 @@ class Document(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     file_path = Column(String(500), nullable=True)     # cth: uploads/knowledge_base/SOP.pdf
 
+    # Kepemilikan dokumen KB per agent (arsitektur multi-agent dinamis):
+    # agent_id terisi = dokumen privat agent tsb (RAG hanya menyuntikkannya
+    # ke agent itu); NULL = pengetahuan BERSAMA yang terlihat semua agent.
+    # SET NULL: menghapus agent tidak ikut menghapus dokumennya.
+    agent_id = Column(
+        String(50),
+        ForeignKey("agent_configs.agent_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     chunks = relationship(
         "RagDocument",
         back_populates="document",
@@ -629,6 +640,25 @@ def init_db():
             ALTER TABLE users
                 ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE;
         """))
+        # Migrasi KB per-agent (multi-agent dinamis): dokumen knowledge base
+        # kini bisa dimiliki agent tertentu. NULL = dokumen bersama (semua
+        # agent). Kolom dulu, lalu FK-nya (cek pg_constraint agar idempoten —
+        # ADD CONSTRAINT tidak punya varian IF NOT EXISTS).
+        conn.execute(text("""
+            ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS agent_id VARCHAR(50);
+        """))
+        fk_exists = conn.execute(text(
+            "SELECT 1 FROM information_schema.table_constraints "
+            "WHERE table_name = 'documents' AND constraint_name = 'fk_documents_agent_id'"
+        )).scalar()
+        if not fk_exists:
+            conn.execute(text("""
+                ALTER TABLE documents
+                    ADD CONSTRAINT fk_documents_agent_id
+                    FOREIGN KEY (agent_id) REFERENCES agent_configs(agent_id)
+                    ON DELETE SET NULL;
+            """))
         # Migrasi multi-channel: users kini mendukung WhatsApp (WAHA) via
         # kolom channel / platform_id / whatsapp_lid (telegram_id boleh NULL).
         _migrate_users_multichannel(conn)

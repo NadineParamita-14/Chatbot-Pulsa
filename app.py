@@ -40,6 +40,7 @@ import redis
 import requests
 from flask import Flask, g, jsonify, render_template, request
 from flask_cors import CORS
+from flask_socketio import SocketIO
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -133,6 +134,15 @@ app = Flask(__name__)
 
 # CORS: frontend SPA diizinkan memanggil semua endpoint /api/*
 CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+# Socket.IO — notifikasi real-time pesan masuk WA/Telegram ke Admin Panel
+# (suara + push notification browser + update UI Riwayat Chat).
+# CATATAN async_mode: instruksi awal menyebut eventlet, tapi eventlet rapuh
+# di Windows (dev) dan butuh worker khusus (`gunicorn -k eventlet`) —
+# "threading" berjalan di mana-mana dan transport long-polling-nya cukup
+# untuk skala admin panel. Gunicorn di Dockerfile memakai --threads agar
+# polling tidak memblokir request lain.
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 JWT_SECRET = os.getenv("JWT_ADMIN_SECRET", "rahasia-dev-ganti-di-produksi")
 JWT_ALGORITHM = "HS256"
@@ -1504,10 +1514,17 @@ def _build_webhook_tools(agent_id: str, user: User) -> list:
 
 
 def _build_system_instruction(base_prompt: str, agent_id: str) -> str:
-    """Susun system instruction: prompt agent + konteks RAG + aturan per agent."""
+    """Susun system instruction: prompt agent + konteks RAG + aturan per agent.
+
+    Semua komponen dinamis dari database: base_prompt dari agent_configs,
+    RAG difilter per agent (dokumen privat agent tsb + dokumen bersama).
+    Aturan tambahan pulsa/cs hanya menempel pada agent_id tersebut — agent
+    baru yang dibuat lewat Admin Panel otomatis berjalan di jalur generik
+    (prompt DB + RAG + aturan gambar) tanpa perlu menyentuh kode lagi.
+    """
     instruction = (
         f"{base_prompt}\n\n"
-        f"INFORMASI TAMBAHAN & PEMBAYARAN:\n{get_all_rag_knowledge()}"
+        f"INFORMASI TAMBAHAN & PEMBAYARAN:\n{get_all_rag_knowledge(agent_id)}"
     )
     if agent_id == "pulsa_agent":
         instruction += f"\n\nDAFTAR PRODUK RESMI (ARRAY DATA) TERKINI:\n{get_products_json_string()}"
@@ -2088,11 +2105,12 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
     temperature = cfg.temperature if cfg else 0.3
     model_name = (getattr(cfg, "model_name", None) or "gemini-2.5-flash")
 
-    # Konteks dinamis CS Agent: identitas & nomor pelanggan diisi ke
-    # template prompt ({customer_name}/{phone_number}). Pelanggan WA
-    # memakai NOMOR WA asli (hasil resolve LID di kolom username) sebagai
-    # identitas; pelanggan Telegram tetap memakai nama lengkap.
-    if agent_id == "cs_agent":
+    # Konteks dinamis pelanggan (multi-agent dinamis): placeholder
+    # {customer_name}/{phone_number} pada prompt agent MANA PUN diisi
+    # otomatis dari identitas user — tidak lagi dikunci ke cs_agent.
+    # Pelanggan WA memakai NOMOR WA asli (hasil resolve LID di kolom
+    # username) sebagai identitas; Telegram memakai nama lengkap.
+    if "{customer_name}" in base_prompt or "{phone_number}" in base_prompt:
         wa_number = ((user.username or "").strip()
                      if user.channel == CHANNEL_WHATSAPP else "") or user.platform_id
         base_prompt = _format_cs_prompt(
@@ -2365,6 +2383,30 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
             _send_telegram_photo(bot_token, user.platform_id, BOT_IMAGES_DIR / filename)
 
 
+def _emit_new_incoming_message(user: User, platform: str, agent_id: str,
+                               snippet: str) -> None:
+    """Emit 'new_incoming_message' ke seluruh Admin Panel yang terhubung.
+
+    Dipanggil kedua webhook (Telegram & WhatsApp) begitu pesan pelanggan
+    diterima — SEBELUM AI diproses — supaya admin langsung mendengar
+    notifikasi dan UI Riwayat Chat terupdate real-time. Payload:
+    user_id (id DB, cocok dgn data-user-id kartu sidebar), name,
+    platform ('whatsapp'/'telegram'), agent_id, message_snippet, timestamp.
+    Best-effort: kegagalan emit tidak boleh menggagalkan webhook.
+    """
+    try:
+        socketio.emit("new_incoming_message", {
+            "user_id": user.id,
+            "name": (user.full_name or user.username or f"User {user.platform_id}"),
+            "platform": platform,
+            "agent_id": agent_id,
+            "message_snippet": (snippet or "")[:120],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception as e:
+        print(f"[SOCKET.IO] Gagal emit new_incoming_message: {e}")
+
+
 @app.route("/webhook/<agent_id>", methods=["POST"])
 def telegram_webhook(agent_id: str):
     """Penerima update Telegram + otak AI (port reply() bot.py ke Flask).
@@ -2429,6 +2471,10 @@ def telegram_webhook(agent_id: str):
         # Telegram tetap menerima 200 dan tidak mengulang update ini.
         print(f"[WEBHOOK:{agent_id}] Gagal mencatat user {user_id} — update dilewati.")
         return jsonify({"status": "ok"}), 200
+
+    # Notifikasi real-time ke Admin Panel (suara/push/UI) — dikirim segera,
+    # tidak menunggu proses AI selesai.
+    _emit_new_incoming_message(user, "telegram", agent_id, user_text)
 
     # Otak AI: proses, simpan riwayat, kirim balasan (semua di helper)
     _process_agent_message(agent_id, user, user_text, image_bytes=image_bytes)
@@ -2556,6 +2602,8 @@ def whatsapp_webhook():
         # Resolve LID -> nomor WA asli (kolom username) sekali di awal;
         # best-effort, tidak menggagalkan balasan bila WAHA bermasalah.
         _resolve_wa_number(user, session_name)
+        # Notifikasi real-time ke Admin Panel — segera saat pesan diterima.
+        _emit_new_incoming_message(user, "whatsapp", agent_id, user_text)
         _process_agent_message(agent_id, user, user_text,
                                image_bytes=image_bytes,
                                reply_target=raw_from, waha_session=session_name)
@@ -2980,6 +3028,21 @@ def upload_knowledge_base():
     if not original_name.lower().endswith(".pdf"):
         raise ValueError("Hanya file PDF yang didukung.")
 
+    # 1b. Kepemilikan dokumen (multi-agent dinamis): field 'agent_id' opsional.
+    #     Diisi -> dokumen privat agent tsb (RAG hanya menyuntikkannya ke
+    #     agent itu); kosong -> dokumen bersama (terlihat semua agent).
+    owner_agent_id = (request.form.get("agent_id") or "").strip() or None
+    if owner_agent_id:
+        owner_exists = (
+            db.query(AgentConfig.agent_id)
+            .filter(AgentConfig.agent_id == owner_agent_id)
+            .first()
+        )
+        if not owner_exists:
+            raise ValueError(
+                f"Agent '{owner_agent_id}' tidak ditemukan di agent_configs."
+            )
+
     # 2. Baca seluruh stream ke memori (pengganti file.save ke disk)
     raw_bytes = file.read()
     pdf_stream = io.BytesIO(raw_bytes)
@@ -2990,6 +3053,7 @@ def upload_knowledge_base():
         file_name=original_name,
         size=len(raw_bytes),
         file_path="in-memory",
+        agent_id=owner_agent_id,
     )
     db.add(document)
     db.flush()
@@ -3041,6 +3105,7 @@ def upload_knowledge_base():
             "file_name": document.file_name,
             "size_bytes": document.size,
             "file_path": document.file_path,
+            "agent_id": document.agent_id,
             "total_chunks": len(chunks),
         },
         message=f"Dokumen '{document.file_name}' berhasil diproses ({len(chunks)} chunk).",
@@ -3060,17 +3125,28 @@ def _fmt_readable(dt):
 @admin_required  # read-only: aman untuk semua role admin
 @api_endpoint
 def list_knowledge_base():
-    """Daftar semua dokumen yang pernah diunggah, terbaru dulu."""
+    """Daftar semua dokumen yang pernah diunggah, terbaru dulu.
+
+    Disertakan pemiliknya (agent_id + nama tampilan agent) — NULL berarti
+    dokumen bersama yang tersuntik ke semua agent.
+    """
     db = get_db()
-    documents = db.query(Document).order_by(Document.upload_at.desc()).all()
+    documents = (
+        db.query(Document, AgentConfig.name)
+        .outerjoin(AgentConfig, AgentConfig.agent_id == Document.agent_id)
+        .order_by(Document.upload_at.desc())
+        .all()
+    )
     return ok(data=[
         {
             "id": d.id,
             "file_name": d.file_name,
             "size": d.size,
             "upload_at": _fmt_readable(d.upload_at),
+            "agent_id": d.agent_id,
+            "agent_name": agent_name,
         }
-        for d in documents
+        for d, agent_name in documents
     ])
 
 
@@ -3546,8 +3622,12 @@ if __name__ == "__main__":
         else:
             reset_admin_password(sys.argv[idx + 1], sys.argv[idx + 2])
     else:
-        app.run(
+        # socketio.run (BUKAN app.run) agar Socket.IO aktif saat dev;
+        # di production gunicorn tetap memakai app:app (lihat Dockerfile).
+        socketio.run(
+            app,
             host="127.0.0.1",
             port=int(os.getenv("PORT", "5000")),
             debug=os.getenv("FLASK_DEBUG", "1") == "1",
+            allow_unsafe_werkzeug=True,
         )

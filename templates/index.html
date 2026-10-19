@@ -362,13 +362,14 @@
             <div id="kb-list-col" class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
               <div class="px-8 py-6 border-b border-gray-100">
                 <h3 class="font-extrabold tracking-tighter text-black">Dokumen Terunggah</h3>
-                <p class="text-xs font-serif italic text-gray-500 mt-0.5">Sumber pengetahuan (RAG) untuk seluruh bot.</p>
+                <p class="text-xs font-serif italic text-gray-500 mt-0.5">Sumber pengetahuan (RAG) — dokumen bersama atau privat per agent.</p>
               </div>
               <div class="overflow-x-auto">
                 <table class="w-full text-sm text-left">
                   <thead class="bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                     <tr>
                       <th class="px-5 py-3">Nama File</th>
+                      <th class="px-5 py-3">Agent</th>
                       <th class="px-5 py-3">Ukuran</th>
                       <th class="px-5 py-3">Diunggah</th>
                       <th class="px-5 py-3 text-right">Aksi</th>
@@ -386,6 +387,15 @@
                 <p class="text-xs font-serif italic text-gray-500 mt-0.5">PDF akan otomatis diekstrak, dipecah jadi chunk, lalu di-embedding.</p>
               </div>
               <form id="kb-upload-form" class="p-5 space-y-4">
+                <!-- Kepemilikan dokumen (multi-agent dinamis): dokumen privat
+                     satu agent atau bersama untuk semua agent. -->
+                <div>
+                  <label for="kb-agent-select" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Milik Agent</label>
+                  <select id="kb-agent-select"
+                    class="w-full rounded-xl border-0 bg-slate-100 px-4 py-2.5 text-sm text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white outline-none transition-colors">
+                    <option value="">Bersama (semua agent)</option>
+                  </select>
+                </div>
                 <!-- Dropzone bergaya dashed: label membungkus input agar klik di mana pun membuka dialog file -->
                 <label for="kb-file-input"
                   class="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-slate-300 rounded-xl px-6 py-10 text-center cursor-pointer hover:border-gray-900 hover:bg-gray-50 transition-colors">
@@ -698,6 +708,8 @@
   <!-- Urutan pemuatan penting: api -> router -> app -->
   <script src="{{ url_for('static', filename='js/api.js') }}"></script>
   <script src="{{ url_for('static', filename='js/router.js') }}"></script>
+  <!-- Socket.IO client: notifikasi real-time pesan masuk (WA/Telegram) -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

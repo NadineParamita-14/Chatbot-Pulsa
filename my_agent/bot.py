@@ -85,7 +85,7 @@ async def reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     selected_model = getattr(agent_config, "model_name", "gemini-2.5-flash") or "gemini-2.5-flash"
 
     products_array_json = get_products_json_string()
-    rag_knowledge = get_all_rag_knowledge()
+    rag_knowledge = get_all_rag_knowledge(CURRENT_AGENT_ID)
 
     # --- SUNTIKAN ATURAN GAMBAR ---
     full_system_instruction = f"""{base_prompt}

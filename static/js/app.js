@@ -216,6 +216,7 @@ async function handleLogin(event) {
     const res = await Api.post("/auth/login", { username, password });
     Api.setToken(res.data.token);
     App.user = res.data.admin;
+    requestNotificationPermission(); // izin push notification (interaksi user)
     window.location.hash = "#dashboard"; // memicu navigate()
     showToast(`Selamat datang, ${res.data.admin.full_name}!`);
   } catch (e) {
@@ -440,7 +441,7 @@ async function renderDashboardCharts() {
 // Kontak diidentifikasi lewat user_id (users.id) — mendukung pengguna
 // Telegram maupun WhatsApp (kolom channel/platform_id).
 // =====================================================================
-const chatsState = { agentId: null, activeId: null, users: [], isManualMode: false, channelFilter: "all" };
+const chatsState = { agentId: null, activeId: null, users: [], isManualMode: false, channelFilter: "all", unreadIds: new Set() };
 
 // Tombol filter channel pane kiri chat: Semua (default, abu gelap netral) /
 // WhatsApp (hijau) / Telegram (biru). Nonaktif = abu redup.
@@ -636,6 +637,7 @@ function renderChatUserList() {
             <p class="text-xs text-slate-500 font-mono truncate">${esc(u.platform_id || "")}</p>
             <span class="flex items-center gap-1 flex-shrink-0">
               ${channelBadge}
+              ${chatsState.unreadIds.has(u.user_id) ? `<span class="unread-dot w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0" title="Pesan belum dibaca"></span>` : ""}
               ${u.is_manual_mode ? `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600 font-semibold">Manual</span>` : ""}
               <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">${u.total_messages} pesan</span>
             </span>
@@ -654,6 +656,7 @@ function renderChatUserList() {
 /** Klik kontak: ambil & render percakapan, lalu gulir ke bawah. */
 async function selectChatUser(userId) {
   chatsState.activeId = userId;
+  chatsState.unreadIds.delete(userId); // badge unread dibersihkan saat dibuka
   renderChatUserList(); // perbarui sorotan kontak aktif
   paintChatPanes();     // di mobile: pindah dari daftar ke jendela chat
   await loadChatConversation(userId);
@@ -730,6 +733,100 @@ function buildMessageBubbleHTML(m) {
     </div>`;
 
   return incoming + outgoing;
+}
+
+// =====================================================================
+// NOTIFIKASI REAL-TIME (Socket.IO) — pesan masuk WhatsApp / Telegram.
+// Backend mem-emit event 'new_incoming_message' begitu pesan diterima
+// webhook; admin mendengar suara, melihat push notification browser,
+// dan UI Riwayat Chat terupdate tanpa reload.
+// =====================================================================
+const notifSound = new Audio("/static/sounds/notif.mp3");
+notifSound.preload = "auto";
+
+const socket = io(); // default: origin yang sama dengan Admin Panel
+
+socket.on("new_incoming_message", (data) => {
+  // 1. Suara notifikasi — .play() bisa ditolak Autoplay Policy browser;
+  //    tangkap errornya agar tidak menghentikan update UI.
+  notifSound.play().catch(() => console.log("Autoplay blocked"));
+
+  // 2. Browser push notification (hanya bila izin sudah diberikan)
+  if (window.Notification && Notification.permission === "granted") {
+    try {
+      new Notification("Pesan Baru dari " + data.name, {
+        body: data.message_snippet,
+      });
+    } catch (e) {
+      /* beberapa browser melempar bila halaman tak fokus — abaikan */
+    }
+  }
+
+  // 3. Update UI Riwayat Chat
+  handleIncomingMessageUi(data);
+});
+
+/** Minta izin notifikasi sekali — dipanggil saat pengguna sudah masuk
+ *  aplikasi (bukan di halaman login) dan hanya bila belum diminta. */
+function requestNotificationPermission() {
+  if (window.Notification && Notification.permission === "default") {
+    Notification.requestPermission().catch(() => {});
+  }
+}
+
+/** Bubble pesan masuk tunggal (kiri, putih) — dipakai injeksi real-time. */
+function buildIncomingBubbleHTML(data) {
+  return `
+    <div class="flex justify-start">
+      <div class="max-w-[85%] md:max-w-[70%]">
+        <div class="bg-white rounded-2xl rounded-bl-sm px-4 py-2 shadow-sm">
+          <p class="text-sm text-slate-800 whitespace-pre-wrap break-words">${esc(data.message_snippet)}</p>
+          <p class="text-[10px] text-right text-slate-400 mt-1">${formatTime(data.timestamp)}</p>
+        </div>
+      </div>
+    </div>`;
+}
+
+/** Update DOM Riwayat Chat akibat pesan masuk:
+ *  1. Kartu user di sidebar di-prepend ke atas (urutan terbaru).
+ *  2. Titik merah unread — kecuali chatnya memang sedang dibuka.
+ *  3. Chat aktif yang cocok langsung menerima bubble pesan barunya.
+ * Kontak yang belum ada di daftar -> daftar di-refresh dari server. */
+function handleIncomingMessageUi(data) {
+  if (currentRouteName() !== "chats") return;  // bukan halaman Riwayat Chat
+  if (!chatsState.agentId || data.agent_id !== chatsState.agentId) return;
+
+  const listEl = document.getElementById("chat-user-list");
+  if (!listEl) return;
+
+  const isActiveChat = chatsState.activeId === data.user_id;
+  if (!isActiveChat) chatsState.unreadIds.add(data.user_id);
+
+  const card = listEl.querySelector(`button[data-user-id="${data.user_id}"]`);
+  if (card) {
+    listEl.prepend(card); // pesan terbaru selalu di atas
+    if (!isActiveChat && !card.querySelector(".unread-dot")) {
+      const dot = document.createElement("span");
+      dot.className = "unread-dot w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0";
+      dot.title = "Pesan belum dibaca";
+      card.querySelector("span.flex.items-center.gap-1")?.appendChild(dot);
+    }
+  } else {
+    // Kartu belum ada (kontak baru) — ambil ulang daftar dari server;
+    // titik unread-nya dirender otomatis dari chatsState.unreadIds.
+    renderChatUserListPane().catch(() => {});
+    return;
+  }
+
+  // Chat yang sedang dibuka -> suntik bubble pesan masuk + scroll ke bawah
+  if (isActiveChat) {
+    const bubblesEl = document.getElementById("chat-bubbles");
+    if (bubblesEl) {
+      bubblesEl.insertAdjacentHTML("beforeend", buildIncomingBubbleHTML(data));
+      const win = document.getElementById("chat-window");
+      if (win) win.scrollTop = win.scrollHeight;
+    }
+  }
 }
 
 /** Terapkan status Manual Mode ke toggle, input, dan tombol kirim.
@@ -1093,7 +1190,28 @@ async function renderKnowledgeBase() {
   document.getElementById("kb-upload-loading").classList.add("hidden");
   document.getElementById("kb-upload-loading").classList.remove("flex");
 
-  await fetchDocuments();
+  await Promise.all([fetchDocuments(), populateKbAgentSelect()]);
+}
+
+/** Isi dropdown "Milik Agent" (multi-agent dinamis): dokumen bisa
+ *  privat satu agent atau bersama utk semua agent. Best-effort —
+ *  bila daftar agent gagal diambil, opsi default tetap ada. */
+async function populateKbAgentSelect() {
+  const select = document.getElementById("kb-agent-select");
+  if (!select) return;
+  try {
+    const res = await Api.get("/agents");
+    const agents = res.data.agents || res.data || [];
+    select.innerHTML =
+      `<option value="">Bersama (semua agent)</option>` +
+      agents
+        .map(
+          (a) => `<option value="${esc(a.agent_id)}">${esc(a.name || a.agent_id)}</option>`
+        )
+        .join("");
+  } catch (e) {
+    /* biarkan opsi "Bersama" — upload tetap bisa jalan tanpa pemilik */
+  }
 }
 
 /** Ambil daftar dokumen dari GET /api/knowledge-base lalu render tabel. */
@@ -1118,6 +1236,11 @@ async function fetchDocuments() {
             <span class="font-medium text-slate-800 break-all">${esc(d.file_name)}</span>
           </div>
         </td>
+        <td class="px-5 py-3 whitespace-nowrap">${
+          d.agent_id
+            ? `<span class="text-[10px] px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 font-semibold" title="Privat: hanya agent ini yang menerima konteks dokumen ini">${esc(d.agent_name || d.agent_id)}</span>`
+            : `<span class="text-[10px] px-2.5 py-1 rounded-full bg-slate-50 text-slate-500" title="Bersama: tersuntik ke semua agent">Bersama</span>`
+        }</td>
         <td class="px-5 py-3 text-slate-500 whitespace-nowrap">${formatBytes(d.size)}</td>
         <td class="px-5 py-3 text-slate-500 text-xs whitespace-nowrap">${esc(d.upload_at)}</td>
         <td class="px-5 py-3 text-right whitespace-nowrap">
@@ -1135,7 +1258,7 @@ async function fetchDocuments() {
       </tr>`
         )
         .join("")
-    : emptyRow(4, "Belum ada dokumen. Unggah PDF untuk menambah pengetahuan bot.");
+    : emptyRow(5, "Belum ada dokumen. Unggah PDF untuk menambah pengetahuan bot.");
 
   // Pasang listener hapus pada tiap tombol (tombol hanya dirender utk superadmin)
   tbody.querySelectorAll("button[data-action='delete']").forEach((btn) => {
@@ -1182,6 +1305,12 @@ async function uploadDocument(event) {
 
   const formData = new FormData();
   formData.append("file", input.files[0]);
+
+  // Kepemilikan dokumen (multi-agent dinamis): kosong = dokumen bersama
+  const agentSelect = document.getElementById("kb-agent-select");
+  if (agentSelect && agentSelect.value) {
+    formData.append("agent_id", agentSelect.value);
+  }
 
   // Tampilkan loading & kunci tombol selama ekstraksi + embedding berjalan
   submitBtn.disabled = true;
@@ -1843,5 +1972,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!window.location.hash) {
     window.location.hash = Api.getToken() ? "#dashboard" : "#login";
   }
+  // Sudah login (refresh halaman): minta izin notifikasi bila belum pernah
+  if (Api.getToken()) requestNotificationPermission();
   navigate();
 });

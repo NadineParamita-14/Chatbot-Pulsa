@@ -2,7 +2,7 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from sqlalchemy import distinct, func
+from sqlalchemy import distinct, func, or_
 from sqlalchemy.exc import IntegrityError
 from models import (
     SessionLocal,
@@ -484,20 +484,30 @@ def get_chat_history(user_id: int, agent_id: str):
         session.close()
 
 
-def get_all_rag_knowledge():
-    """Mengambil seluruh materi knowledge base dari chunks semua dokumen.
+def get_all_rag_knowledge(agent_id: str | None = None):
+    """Mengambil materi knowledge base dari chunks dokumen utk agent tertentu.
+
+    Filter kepemilikan (arsitektur multi-agent dinamis):
+      - agent_id diberikan -> chunk milik agent itu + dokumen BERSAMA
+        (agent_id NULL di tabel documents). Agent A TIDAK PERNAH melihat
+        dokumen privat milik agent B.
+      - agent_id None (legacy polling bot tanpa konteks agent) -> semua
+        dokumen tanpa filter.
 
     Format per baris: "- [nama_file] teks_chunk" — nama file asal disertakan
     agar AI tahu sumber informasinya.
     """
     session = SessionLocal()
     try:
-        rows = (
+        query = (
             session.query(Document.file_name, RagDocument.chunk_text)
             .join(RagDocument, RagDocument.document_id == Document.id)
-            .order_by(Document.id.asc(), RagDocument.id.asc())
-            .all()
         )
+        if agent_id:
+            query = query.filter(
+                or_(Document.agent_id == agent_id, Document.agent_id.is_(None))
+            )
+        rows = query.order_by(Document.id.asc(), RagDocument.id.asc()).all()
         return "\n".join(f"- [{name}] {chunk}" for name, chunk in rows)
     finally:
         session.close()

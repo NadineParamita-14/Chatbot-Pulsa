@@ -26,4 +26,6 @@ COPY . .
 EXPOSE 5000
 
 # Production WSGI server
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
+# --threads: worker gthread — Socket.IO (long-polling) butuh konkurensi;
+# sync worker tunggal akan memblokir request lain saat admin panel terhubung.
+CMD ["gunicorn", "--threads", "8", "--bind", "0.0.0.0:5000", "app:app"]

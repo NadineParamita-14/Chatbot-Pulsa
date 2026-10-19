@@ -105,33 +105,40 @@ Selalu ketik tag tersebut persis seperti contoh.
 # ==========================================
 def create_agent(agent_id: str = "pulsa_agent") -> Agent:
     """
-    Membuat instance Agent dengan model Gemini dan instruksi
-    yang diambil secara realtime dari tabel agent_configs di database.
+    Membuat instance Agent sepenuhnya dari database (multi-agent dinamis):
+    model_name, system_prompt, dan temperature diambil realtime dari tabel
+    agent_configs — agent baru yang dibuat lewat Admin Panel langsung bisa
+    dipakai tanpa mengubah kode. Fallback generik hanya dipakai bila config
+    belum ada di DB (mis. DB belum di-seed).
     """
     config = get_agent_config(agent_id)
 
     # Ambil nilai kolom model_name dari relasi database
     selected_model = getattr(config, "model_name", "gemini-2.5-flash") if config else "gemini-2.5-flash"
 
+    # Temperature dari database (default generik bila config belum ada)
+    temperature = float(getattr(config, "temperature", 0.3)) if config else 0.3
+
     # Ambil instruksi dari database
     if config and config.system_prompt:
         instruction_text = config.system_prompt
     else:
         instruction_text = (
-            "Kamu adalah asisten virtual penjual pulsa otomatis yang ramah dan cepat. "
-            "Bantu pelanggan mengecek harga dan transaksi pulsa."
+            "Kamu adalah asisten virtual yang ramah dan membantu. "
+            "Jawab pertanyaan pelanggan sesuai pengetahuan yang kamu miliki."
         )
 
     # Injeksi aturan tag gambar agar LLM bisa "memesan" gambar lokal
     instruction_text = f"{instruction_text}\n{IMAGE_RULES}"
 
-    print(f"-> Agent '{agent_id}' menggunakan model: {selected_model}")
+    print(f"-> Agent '{agent_id}' menggunakan model: {selected_model} (temperature {temperature})")
 
     return Agent(
         model=selected_model,
         name=agent_id,
         description="Assistant dynamically configured from database.",
         instruction=instruction_text,
+        temperature=temperature,
         tools=[get_weather, get_current_time, get_hot_coffee_list],
     )
 
