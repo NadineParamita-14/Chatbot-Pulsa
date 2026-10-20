@@ -23,7 +23,8 @@ const Routes = {
     view: "view-waha",
     title: "WhatsApp Session",
     render: () => renderWahaSessions(),
-    superadminOnly: true,
+    // RBAC: admin juga boleh masuk — backend menyaring sesi milik agent
+    // yang ditugaskan (pivot admin_agent_access); superadmin melihat semua.
   },
   "ai-usage": {
     view: "view-ai-usage",

@@ -1473,10 +1473,16 @@ async function fetchWahaSessions(silent = false) {
     return;
   }
 
+  // Sesi yang menunggu pemindaian QR memunculkan tombol "Scan QR"
+  // (modal + polling — alur tanpa reload, lihat wahaPageQrState).
+  const SCAN_STATUSES = ["SCAN_QR", "SCAN_QR_CODE", "STARTING"];
+  const isWorking = (s) => (s.status || "").toUpperCase() === "WORKING";
+
   grid.innerHTML = sessions
     .map(
       (s) => `
-    <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 hover:-translate-y-0.5 transition-all">
+    <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 hover:-translate-y-0.5 transition-all"
+         data-waha-card="${esc(s.name || "")}" data-waha-status="${esc(s.status || "")}">
       <div class="flex items-start justify-between gap-3">
         <div class="flex items-center gap-3 min-w-0">
           <div class="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0">
@@ -1486,21 +1492,159 @@ async function fetchWahaSessions(silent = false) {
           </div>
           <div class="min-w-0">
             <p class="text-sm font-semibold text-slate-800 truncate">${esc(s.name)}</p>
-            <p class="text-xs text-slate-400 font-mono truncate">${esc(s.phone || "nomor belum terhubung")}</p>
+            <p class="text-xs text-slate-400 font-mono truncate" data-waha-phone>${esc(s.phone || "nomor belum terhubung")}</p>
           </div>
         </div>
-        ${wahaStatusBadge(s.status)}
+        <span data-waha-badge>${wahaStatusBadge(s.status)}</span>
       </div>
-      <div class="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-        <span>Nama WhatsApp: <span class="font-medium text-slate-700">${esc(s.push_name || "-")}</span></span>
-        <span class="inline-flex items-center gap-1.5">
-          <span class="w-2 h-2 rounded-full ${(s.status || "").toUpperCase() === "WORKING" ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}"></span>
-          ${(s.status || "").toUpperCase() === "WORKING" ? "Terhubung" : "Tidak terhubung"}
+      <div class="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between gap-3 text-xs text-slate-500">
+        <span class="min-w-0 truncate">Nama WhatsApp: <span class="font-medium text-slate-700">${esc(s.push_name || "-")}</span></span>
+        <span class="inline-flex items-center gap-1.5 flex-shrink-0">
+          <span data-waha-dot class="w-2 h-2 rounded-full ${isWorking(s) ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}"></span>
+          <span data-waha-status-text>${isWorking(s) ? "Terhubung" : "Tidak terhubung"}</span>
+          ${SCAN_STATUSES.includes((s.status || "").toUpperCase())
+            ? `<button type="button" data-waha-scan="${esc(s.name)}"
+                class="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-400 hover:bg-amber-500 text-amber-950 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition-colors">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z"/>
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75zM6.75 16.5h.75v.75h-.75v-.75zM16.5 6.75h.75v.75h-.75v-.75zM13.5 13.5h.75v.75h-.75v-.75zM13.5 19.5h.75v.75h-.75v-.75zM19.5 13.5h.75v.75h-.75v-.75zM19.5 19.5h.75v.75h-.75v-.75zM16.5 16.5h.75v.75h-.75v-.75z"/>
+                </svg>
+                Scan QR
+              </button>`
+            : ""}
         </span>
       </div>
     </div>`
     )
     .join("");
+
+  // Kartu dinamis -> pasang ulang listener tombol Scan QR tiap render
+  grid.querySelectorAll("[data-waha-scan]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      openWahaPageQrModal(btn.dataset.wahaScan);
+    });
+  });
+}
+
+// ---------------------------------------------------------------------
+// QR MODAL HALAMAN WAHA — scan tanpa pindah halaman (role admin & superadmin)
+// Sama-sama memakai modal #modal-waha-qr dengan alur milik Agent Config,
+// tetapi polling-nya lewat /waha/sessions (daftar sudah disaring backend
+// sesuai role) dan interval 2 detik. Saat sesi WORKING: polling berhenti,
+// modal menutup sendiri, dan kartu terkait diperbarui tanpa reload.
+// ---------------------------------------------------------------------
+const wahaPageQrState = {
+  session: null, // nama sesi yang menunggu scan
+  timer: null,   // handle setInterval polling
+  deadline: 0,   // batas waktu polling agar tidak abadi
+};
+
+/** Buka modal QR utk sesi halaman WAHA & mulai polling tiap 2 detik. */
+function openWahaPageQrModal(sessionName) {
+  stopWahaPageQrPolling(); // bersihkan polling sebelumnya bila ada
+
+  wahaPageQrState.session = sessionName;
+  wahaPageQrState.deadline = Date.now() + 2 * 60 * 1000; // maks 2 menit
+
+  document.getElementById("waha-qr-img").classList.add("hidden");
+  document.getElementById("waha-qr-img").removeAttribute("src");
+  document.getElementById("waha-qr-spinner").classList.remove("hidden");
+  document.getElementById("waha-qr-status").textContent = "Menyiapkan sesi…";
+  openModal("modal-waha-qr");
+
+  pollWahaPageQrTick(); // tick pertama tanpa menunggu interval
+  wahaPageQrState.timer = setInterval(pollWahaPageQrTick, 2000);
+}
+
+/** Satu iterasi polling halaman WAHA: status sesi + gambar QR. */
+async function pollWahaPageQrTick() {
+  const { session, deadline } = wahaPageQrState;
+  if (!session) return;
+
+  if (Date.now() > deadline) {
+    stopWahaPageQrPolling();
+    showToast("QR tidak tersedia / sesi terlalu lama menunggu. Coba Scan QR lagi.", "error");
+    return;
+  }
+
+  const statusEl = document.getElementById("waha-qr-status");
+
+  // 1) Status sesi via daftar terfilter (/waha/sessions sesuai role)
+  try {
+    const res = await Api.get("/waha/sessions");
+    const s = (res.data || []).find((x) => x.name === session);
+    if (s && s.status === "WORKING") {
+      stopWahaPageQrPolling();
+      showToast(`Perangkat ${s.phone || session} berhasil tertaut!`);
+      updateWahaCardLive(session, s); // badge & indikator kartu, tanpa reload
+      return;
+    }
+    if (s && s.status) {
+      statusEl.textContent = s.status.startsWith("SCAN_QR")
+        ? "Menunggu scan QR dari WhatsApp…"
+        : `Status sesi: ${s.status}…`;
+    }
+  } catch (e) {
+    statusEl.textContent = e.message; // coba lagi di tick berikutnya
+  }
+
+  // 2) Gambar QR (WAHA kadang perlu beberapa detik sebelum menerbitkan)
+  try {
+    const qrRes = await Api.get(`/waha/session/${encodeURIComponent(session)}/qr`);
+    if (qrRes.data && qrRes.data.qr) {
+      const img = document.getElementById("waha-qr-img");
+      img.src = qrRes.data.qr;
+      img.classList.remove("hidden");
+      document.getElementById("waha-qr-spinner").classList.add("hidden");
+    }
+  } catch (e) {
+    /* QR belum terbit — spinner tetap; detail sudah tampil di status */
+  }
+}
+
+/** Hentikan polling modal halaman WAHA (idempoten). */
+function stopWahaPageQrPolling() {
+  if (wahaPageQrState.timer) {
+    clearInterval(wahaPageQrState.timer);
+    wahaPageQrState.timer = null;
+  }
+  wahaPageQrState.session = null;
+  closeModal("modal-waha-qr");
+}
+
+/**
+ * Perbarui kartu sesi di halaman WAHA secara in-place (tanpa reload):
+ * badge SCAN_QR/STARTING -> WORKING hijau, titik koneksi + teks
+ * "Terhubung", dan nomor telepon yang baru tertaut.
+ */
+function updateWahaCardLive(sessionName, s) {
+  const card = document.querySelector(
+    `[data-waha-card="${CSS.escape(sessionName)}"]`
+  );
+  if (!card) {
+    fetchWahaSessions(true); // kartu tak ditemukan (mis. filter berubah) — segar diam-diam
+    return;
+  }
+
+  card.dataset.wahaStatus = s.status || "";
+  const badge = card.querySelector("[data-waha-badge]");
+  if (badge) badge.innerHTML = wahaStatusBadge(s.status);
+
+  const dot = card.querySelector("[data-waha-dot]");
+  if (dot) {
+    dot.classList.toggle("bg-emerald-500", true);
+    dot.classList.toggle("animate-pulse", true);
+    dot.classList.toggle("bg-slate-300", false);
+  }
+  const statusText = card.querySelector("[data-waha-status-text]");
+  if (statusText) statusText.textContent = "Terhubung";
+
+  const phone = card.querySelector("[data-waha-phone]");
+  if (phone && s.phone) phone.textContent = s.phone;
+
+  // Tombol Scan QR tak relevan lagi setelah terhubung
+  card.querySelector("[data-waha-scan]")?.remove();
 }
 
 // =====================================================================
@@ -1810,6 +1954,22 @@ async function renderAdmins() {
   const res = await Api.get("/admins");
   const admins = res.data;
 
+  // Sel "Akses Agent": superadmin -> "Semua Agent" (implisit);
+  // admin -> nama agent yang ditugaskan (pivot), atau "—" bila belum ada.
+  const agentAccessCell = (a) => {
+    if (a.role === "superadmin") {
+      return `<span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">Semua Agent</span>`;
+    }
+    if (a.agent_access && a.agent_access.length) {
+      return a.agent_access
+        .map(
+          (g) => `<span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-600">${esc(g.name)}</span>`
+        )
+        .join(" ");
+    }
+    return `<span class="text-slate-400 text-xs">— belum ditugaskan —</span>`;
+  };
+
   tbody.innerHTML = admins.length
     ? admins
         .map(
@@ -1819,6 +1979,7 @@ async function renderAdmins() {
         <td class="px-5 py-3 font-semibold">${esc(a.username)}</td>
         <td class="px-5 py-3">${esc(a.full_name)}</td>
         <td class="px-5 py-3">${statusBadge(a.role)}</td>
+        <td class="px-5 py-3">${agentAccessCell(a)}</td>
         <td class="px-5 py-3">${statusBadge(a.is_active ? "active" : "inactive")}</td>
         <td class="px-5 py-3 text-slate-500 text-xs">${formatDateTime(a.created_at)}</td>
         <td class="px-5 py-3 text-right whitespace-nowrap">
@@ -1828,7 +1989,7 @@ async function renderAdmins() {
       </tr>`
         )
         .join("")
-    : emptyRow(7);
+    : emptyRow(8);
 
   tbody.querySelectorAll("button[data-action]").forEach((btn) => {
     const admin = admins.find((a) => a.id === parseInt(btn.dataset.id, 10));
@@ -1838,6 +1999,33 @@ async function renderAdmins() {
       btn.addEventListener("click", () => deleteAdmin(admin));
     }
   });
+}
+
+/** Isi dropdown "Akses Agent" dari GET /api/agents (best-effort). */
+async function populateAdminAgentSelect() {
+  const select = document.getElementById("admin-agent");
+  if (!select) return;
+  try {
+    const res = await Api.get("/agents");
+    const agents = res.data || [];
+    select.innerHTML =
+      `<option value="">— Pilih Agent —</option>` +
+      agents
+        .map(
+          (a) => `<option value="${esc(a.agent_id)}">${esc(a.name || a.agent_id)}</option>`
+        )
+        .join("");
+  } catch (e) {
+    select.innerHTML = `<option value="">— Gagal memuat agent —</option>`;
+  }
+}
+
+/** RBAC pivot: dropdown Akses Agent hanya relevan untuk role Admin. */
+function syncAdminAgentVisibility() {
+  const role = document.getElementById("admin-role").value;
+  document
+    .getElementById("admin-agent-wrap")
+    .classList.toggle("hidden", role !== "admin");
 }
 
 /** Buka modal admin; tanpa argumen = mode tambah. */
@@ -1851,18 +2039,39 @@ function openAdminModal(admin = null) {
   document.getElementById("admin-password-hint").textContent = admin ? "(kosongkan jika tidak diubah)" : "";
   document.getElementById("admin-role").value = admin ? admin.role : "admin";
   document.getElementById("admin-is-active").checked = admin ? admin.is_active : true;
+
+  // Dropdown agent: isi ulang tiap buka (daftar agent bisa bertambah),
+  // lalu prapilih penugasan saat mode edit.
+  populateAdminAgentSelect().then(() => {
+    if (admin && admin.agent_access && admin.agent_access.length) {
+      document.getElementById("admin-agent").value = admin.agent_access[0].agent_id;
+    }
+  });
+  syncAdminAgentVisibility();
   openModal("modal-admin");
 }
 
 async function handleAdminSubmit(event) {
   event.preventDefault();
   const id = document.getElementById("admin-id").value;
+  const role = document.getElementById("admin-role").value;
   const payload = {
     username: document.getElementById("admin-username").value.trim(),
     full_name: document.getElementById("admin-full-name").value.trim(),
-    role: document.getElementById("admin-role").value,
+    role,
     is_active: document.getElementById("admin-is-active").checked,
   };
+
+  // RBAC pivot: role admin wajib membawa agent_id (single select)
+  const agentId = document.getElementById("admin-agent").value;
+  if (role === "admin") {
+    if (!agentId) {
+      showToast("Pilih agent untuk role Admin (Akses Agent wajib).", "error");
+      return;
+    }
+    payload.agent_id = agentId;
+  }
+
   const password = document.getElementById("admin-password").value;
   if (password || !id) payload.password = password; // kirim hanya saat perlu
 
@@ -1929,15 +2138,21 @@ document.addEventListener("DOMContentLoaded", () => {
     el.addEventListener("click", () => document.getElementById("agent-create-form").reset());
   });
 
-  // Modal QR WhatsApp: hentikan polling sesi saat ditutup lewat
-  // tombol Tutup maupun klik overlay gelap.
+  // Modal QR WhatsApp (dipakai dua alur: Agent Config & halaman WAHA):
+  // hentikan polling kedua alur saat ditutup lewat tombol Tutup maupun
+  // klik overlay gelap.
   document.querySelectorAll("#modal-waha-qr [data-close-modal]").forEach((el) => {
-    el.addEventListener("click", stopWahaQrPolling);
+    el.addEventListener("click", () => {
+      stopWahaQrPolling();
+      stopWahaPageQrPolling();
+    });
   });
 
   // Form admin
   document.getElementById("admin-form").addEventListener("submit", handleAdminSubmit);
   document.getElementById("btn-add-admin").addEventListener("click", () => openAdminModal());
+  // RBAC pivot: ganti role -> tampilkan/sembunyikan dropdown Akses Agent
+  document.getElementById("admin-role").addEventListener("change", syncAdminAgentVisibility);
 
   // Tombol persetujuan modal konfirmasi: jalankan aksi tersimpan
   document.getElementById("confirm-ok").addEventListener("click", () => {

@@ -1874,3 +1874,52 @@ Please implement this RBAC system step-by-step.
 4. Normal admins should still see Total Pelanggan, Chat Hari Ini, Total Chat, Balasan AI Hari Ini, Unreg Berhasil, Pengguna Diblokir, Mode Manual Aktif, and Tren Pelanggan Aktif.
 
 Please provide the necessary code modifications for the database, backend routes, and HTML templates.
+
+# Task
+Tolong lakukan backup (dump) untuk database PostgreSQL yang digunakan pada proyek ini sebelum kita melakukan perubahan struktur tabel (Pivot Table). 
+
+# Instructions
+1. Cek konfigurasi koneksi database di file environment (`.env`) atau `app.py` untuk mendapatkan nama database, user, dan password yang sedang digunakan.
+2. Buatkan file script Python sederhana bernama `backup_db.py` yang menggunakan library `subprocess` untuk menjalankan perintah `pg_dump`. 
+3. Atur agar hasil backup disimpan ke dalam file bernama `backup_sebelum_pivot.sql` di root folder proyek ini.
+4. Tolong jalankan script tersebut, atau beritahu saya jika saya harus menjalankannya sendiri secara manual dengan `python backup_db.py`.
+
+# Context
+We are refining the Role-Based Access Control (RBAC) in our Flask Admin Panel. We need to link `admin` users to specific AI Agents using a pivot table. 
+Superadmins have access to all agents. Normal Admins are assigned to exactly ONE specific agent (Single Select). Additionally, we need to improve the UX of the WhatsApp Session page so Admins can scan QR codes via a dynamic modal without refreshing the page.
+
+# Task
+Please implement the following updates step-by-step.
+
+## Step 1: Database (Pivot Table)
+1. Create a pivot table/association table named `admin_agent_access` with columns: `admin_id` (FK to Admin/User table) and `agent_id` (FK to Agent table).
+2. Update the backend route logic for adding a new Admin:
+   - If the new user's role is `superadmin`, do not insert into the pivot table.
+   - If the role is `admin`, take the submitted `agent_id` from the form and insert a new record into `admin_agent_access`.
+
+## Step 2: Admin Management UI (`admin_management.html`)
+1. **Tambah Admin Modal:** Add a `<select name="agent_id">` dropdown (Single Select) populated dynamically with all available Agents.
+2. Add vanilla JavaScript to this modal: If the "Role" dropdown is set to "Superadmin", hide or disable the "Akses Agent" dropdown. If set to "Admin", make the dropdown visible and required.
+3. **Daftar Admin Table:** Add a new column "Akses Agent". 
+   - For users with the `superadmin` role, display "Semua Agent" in this column.
+   - For users with the `admin` role, perform a JOIN and display the specific Agent's Name they are assigned to.
+
+## Step 3: WhatsApp Session Access & Query (`app.py`)
+1. Remove the strict `@superadmin_required` restriction from the `/whatsapp-session` route so normal admins can access it.
+2. Modify the query logic inside the route:
+   - If `current_user.role == 'superadmin'`, fetch and render ALL WhatsApp sessions.
+   - If `current_user.role == 'admin'`, query the `admin_agent_access` table to find their assigned `agent_id`, then fetch and render ONLY the WhatsApp session tied to that agent.
+
+## Step 4: Seamless QR Code Scan UX (JavaScript & Modal)
+1. **QR Modal:** Add a hidden Modal (using Bootstrap or Tailwind based on current UI) in `whatsapp_session.html` with an `<img>` tag to hold the QR code.
+2. **Trigger:** When the yellow `SCAN_QR_CODE` button is clicked:
+   - Prevent the default anchor redirect.
+   - Fetch the QR code image logic/endpoint for that specific session.
+   - Inject the image into the Modal and open the Modal.
+3. **Polling Logic:** As soon as the modal opens, start a `setInterval` (every 2000ms) that makes an AJAX/fetch request to an endpoint checking the session's connection status.
+4. **Auto-Update & Close:** If the polling response indicates the session is successfully connected (e.g., status == `WORKING`):
+   - `clearInterval()` to stop the polling.
+   - Automatically close the QR Modal.
+   - Dynamically update the DOM of that session's card: Change the yellow `SCAN_QR_CODE` badge to a green `WORKING` badge, and update the offline text indicator to a green `Terhubung` indicator, without reloading the page.
+
+Please provide the updated Python models, routes, and the exact HTML/JS modifications needed to achieve this.

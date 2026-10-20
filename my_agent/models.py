@@ -8,7 +8,7 @@ from sqlalchemy import (
     UniqueConstraint
 )
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy.orm import declarative_base, sessionmaker, relationship
+from sqlalchemy.orm import declarative_base, sessionmaker, relationship, backref
 from pgvector.sqlalchemy import Vector
 
 # Muat file .env dari folder my_agent
@@ -640,6 +640,46 @@ class Admin(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+# ==========================================
+# 10b. TABEL PIVOT: Admin <-> Agent (RBAC per-agent)
+# ==========================================
+class AdminAgentAccess(Base):
+    """Pivot `admin_agent_access`: penugasan admin role 'admin' ke SATU agent.
+
+    superadmin TIDAK dicatat di sini — aksesnya implisit ke semua agent
+    (ditentukan di lapisan route). PK komposit (admin_id, agent_id) menjamin
+    satu admin tak pernah punya penugasan ganda ke agent yang sama.
+
+    `agent_id` memakai string `agent_configs.agent_id` (unik) mengikuti
+    preseden tabel documents. CASCADE dua arah di level database:
+    admin dihapus -> penugasannya ikut terhapus; agent dihapus -> idem.
+    Relationship `admin` diberi cascade ORM (all, delete-orphan) lewat
+    backref `Admin.agent_access` agar session.delete(admin) bersih tanpa
+    menyentuh FK NULL.
+    """
+
+    __tablename__ = "admin_agent_access"
+
+    admin_id = Column(
+        Integer,
+        ForeignKey("admins.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    agent_id = Column(
+        String(50),
+        ForeignKey("agent_configs.agent_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    admin = relationship(
+        "Admin",
+        backref=backref("agent_access", cascade="all, delete-orphan"),
+    )
+    agent = relationship("AgentConfig")
+
 
 def init_db():
     with engine.connect() as conn:

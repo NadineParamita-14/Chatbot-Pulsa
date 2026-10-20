@@ -5,3 +5,6 @@ uploads/
 .claude/
 *.postman_collection.json
 logs/
+
+# Dump database (berisi hash password & data pelanggan)
+backup_*.sql

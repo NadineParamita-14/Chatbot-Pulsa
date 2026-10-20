@@ -54,6 +54,7 @@ sys.path.insert(0, str(MY_AGENT_DIR))
 
 from models import (  # noqa: E402
     Admin,
+    AdminAgentAccess,
     AdminRole,
     AgentConfig,
     AgentWahaSession,
@@ -3219,15 +3220,44 @@ def delete_knowledge_base(doc_id: int):
 # =====================================================================
 # ENDPOINT: WAHA SESSION MONITORING (proxy status sesi WhatsApp)
 # =====================================================================
+def _allowed_waha_sessions_for_admin(db, admin) -> set | None:
+    """Session_name yang boleh dilihat admin ini; None = tanpa batas.
+
+    superadmin -> None (semua sesi). admin -> session_name milik agent
+    yang ditugaskan padanya lewat pivot admin_agent_access (join ke
+    agent_waha_sessions pemetaan agent -> sesi WAHA).
+    """
+    if admin.role == AdminRole.SUPERADMIN:
+        return None
+    rows = (
+        db.query(AgentWahaSession.session_name)
+        .join(AgentConfig, AgentConfig.id == AgentWahaSession.agent_id)
+        .join(AdminAgentAccess, AdminAgentAccess.agent_id == AgentConfig.agent_id)
+        .filter(AdminAgentAccess.admin_id == admin.id)
+        .all()
+    )
+    return {r[0] for r in rows}
+
+
 @app.route("/api/waha/sessions", methods=["GET"])
-@superadmin_required  # menu WhatsApp Session hanya untuk superadmin (RBAC)
+@admin_required  # superadmin = semua sesi; admin = hanya sesi agent-nya
 @api_endpoint
 def list_waha_sessions():
     """Proxy daftar sesi WhatsApp dari server WAHA untuk menu monitoring.
 
-    Bila WAHA mati/tak terjangkau, jangan crash — kembalikan daftar kosong
-    dengan pesan agar UI tetap tampil dan admin tahu bahwa WAHA bermasalah.
+    RBAC: role superadmin menerima SEMUA sesi; role admin hanya sesi yang
+    terikat agent pada pivot admin_agent_access (tanpa penugasan -> daftar
+    kosong berikut penjelasan). Bila WAHA mati/tak terjangkau, jangan crash
+    — kembalikan daftar kosong dengan pesan agar UI tetap tampil.
     """
+    db = get_db()
+    allowed = _allowed_waha_sessions_for_admin(db, g.current_admin)
+    if allowed is not None and not allowed:
+        return ok(
+            data=[],
+            message="Belum ada agent yang ditugaskan ke akun Anda.",
+        )
+
     try:
         resp = requests.get(
             f"{WAHA_BASE_URL}/api/sessions",
@@ -3252,6 +3282,11 @@ def list_waha_sessions():
             "phone": raw_id.split("@")[0] if raw_id else None,
             "push_name": me.get("pushName"),
         })
+
+    # RBAC admin: sesukan daftar ke sesi milik agent yang ditugaskan
+    if allowed is not None:
+        sessions = [s for s in sessions if s.get("name") in allowed]
+
     return ok(data=sessions)
 
 
@@ -3386,7 +3421,7 @@ def start_agent_waha_session(agent_id: str):
 
 
 @app.route("/api/waha/session/<session_name>/qr", methods=["GET"])
-@superadmin_required
+@admin_required  # superadmin bebas; admin hanya QR sesi milik agent-nya
 @api_endpoint
 def get_waha_session_qr(session_name: str):
     """Proxy QR code sesi WAHA sebagai data-URL (JSON) untuk modal UI.
@@ -3395,6 +3430,7 @@ def get_waha_session_qr(session_name: str):
     `data:image/png;base64,...` supaya frontend cukup memakai fetch
     ber-header JWT yang sudah ada (img src murni tidak bisa membawa
     Authorization header). Sesi harus tercatat di database.
+    RBAC: role admin hanya boleh QR sesi milik agent yang ditugaskan.
     """
     if not WAHA_SESSION_NAME_RE.match(session_name):
         return err("Nama sesi tidak valid.", 400)
@@ -3403,6 +3439,10 @@ def get_waha_session_qr(session_name: str):
     row = db.query(AgentWahaSession).filter_by(session_name=session_name).first()
     if row is None:
         return err("Sesi tidak ditemukan.", 404)
+
+    allowed = _allowed_waha_sessions_for_admin(db, g.current_admin)
+    if allowed is not None and session_name not in allowed:
+        return err("Sesi ini bukan milik agent yang ditugaskan kepada Anda.", 403)
 
     try:
         # Route QR gaya API WAHA lama: /api/{session}/auth/qr — versi yang
@@ -3500,9 +3540,48 @@ def _is_last_superadmin(db, admin_id: int) -> bool:
 @superadmin_required
 @api_endpoint
 def list_admins():
+    """Daftar admin + penugasan agent (pivot admin_agent_access).
+
+    Kolom akses di frontend: superadmin -> "Semua Agent" (implisit, tak
+    dicatat di pivot); admin -> daftar agent yang ditugaskan (0..1 agent).
+    """
     db = get_db()
     admins = db.query(Admin).order_by(Admin.created_at).all()
-    return ok(data=[serialize_admin(a) for a in admins])
+
+    access_rows = (
+        db.query(AdminAgentAccess.admin_id, AgentConfig.agent_id, AgentConfig.name)
+        .join(AgentConfig, AgentConfig.agent_id == AdminAgentAccess.agent_id)
+        .all()
+    )
+    access_by_admin: dict = {}
+    for admin_id, agent_id, agent_name in access_rows:
+        access_by_admin.setdefault(admin_id, []).append(
+            {"agent_id": agent_id, "name": agent_name or agent_id}
+        )
+
+    data = []
+    for a in admins:
+        item = serialize_admin(a)
+        item["agent_access"] = access_by_admin.get(a.id, [])
+        data.append(item)
+    return ok(data=data)
+
+
+def _validate_agent_id(db, agent_id: str) -> str:
+    """Pastikan agent_id ada di agent_configs; raise bila tidak."""
+    agent_id = (agent_id or "").strip()
+    if not agent_id:
+        raise ValueError("Akses agent wajib dipilih untuk role admin.")
+    if db.query(AgentConfig).filter_by(agent_id=agent_id).first() is None:
+        raise ValueError(f"Agent '{agent_id}' tidak ditemukan.")
+    return agent_id
+
+
+def _replace_agent_access(db, admin_id: int, agent_id: str | None):
+    """Ganti seluruh penugasan agent milik satu admin (0 atau 1 baris)."""
+    db.query(AdminAgentAccess).filter_by(admin_id=admin_id).delete()
+    if agent_id:
+        db.add(AdminAgentAccess(admin_id=admin_id, agent_id=agent_id))
 
 
 @app.route("/api/admins", methods=["POST"])
@@ -3526,6 +3605,12 @@ def create_admin():
     if db.query(Admin).filter_by(username=username).first():
         raise ValueError(f"Username '{username}' sudah digunakan.")
 
+    # RBAC per-agent: role 'admin' wajib ditugaskan ke SATU agent;
+    # superadmin tidak dicatat di pivot (akses implisit semua agent).
+    agent_id = None
+    if role == AdminRole.ADMIN.value:
+        agent_id = _validate_agent_id(db, body.get("agent_id"))
+
     admin = Admin(
         username=username,
         password_hash=generate_password_hash(password),
@@ -3534,6 +3619,9 @@ def create_admin():
         is_active=bool(body.get("is_active", True)),
     )
     db.add(admin)
+    db.flush()  # perlu admin.id untuk baris pivot
+    if agent_id:
+        db.add(AdminAgentAccess(admin_id=admin.id, agent_id=agent_id))
     db.commit()
     return ok(data=serialize_admin(admin), message="Admin baru berhasil dibuat.", code=201)
 
@@ -3564,6 +3652,16 @@ def update_admin(admin_id: int):
             if _is_last_superadmin(db, admin.id):
                 raise ValueError("Tidak bisa menurunkan role: ini satu-satunya superadmin aktif.")
         admin.role = AdminRole(role)
+
+    # RBAC per-agent: penugasan agent ikut disesuaikan saat role/dropdown
+    # diubah. superadmin -> pivot dibersihkan; admin -> ganti dengan nilai
+    # baru bila dikirim (validasi), bila tidak dikirim penugasan lama bertahan.
+    effective_role = admin.role.value if isinstance(admin.role, AdminRole) else str(admin.role)
+    if effective_role == AdminRole.SUPERADMIN.value:
+        if db.query(AdminAgentAccess).filter_by(admin_id=admin.id).count():
+            db.query(AdminAgentAccess).filter_by(admin_id=admin.id).delete()
+    elif body.get("agent_id") is not None:
+        _replace_agent_access(db, admin.id, _validate_agent_id(db, body.get("agent_id")))
 
     if "is_active" in body:
         admin.is_active = bool(body["is_active"])

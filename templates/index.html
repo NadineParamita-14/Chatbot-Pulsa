@@ -121,7 +121,7 @@
           Riwayat Chat
         </a>
 
-        <a href="#waha" data-route="waha" data-superadmin-only
+        <a href="#waha" data-route="waha"
            class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-500 hover:text-black hover:bg-gray-100/70 transition-colors">
           <svg class="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/>
@@ -137,7 +137,8 @@
           AI Usage
         </a>
 
-        <!-- Empat link di bawah ini hanya tampil untuk superadmin (dikontrol app.js) -->
+        <!-- Tiga link di bawah ini hanya tampil untuk superadmin (dikontrol app.js);
+             #waha di atas terbuka untuk semua role (sesi disaring per agent) -->
         <a href="#knowledge-base" data-route="knowledge-base" data-superadmin-only
            class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-500 hover:text-black hover:bg-gray-100/70 transition-colors">
           <svg class="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -539,6 +540,7 @@
                     <th class="px-5 py-3">Username</th>
                     <th class="px-5 py-3">Nama Lengkap</th>
                     <th class="px-5 py-3">Role</th>
+                    <th class="px-5 py-3">Akses Agent</th>
                     <th class="px-5 py-3">Status</th>
                     <th class="px-5 py-3">Dibuat</th>
                     <th class="px-5 py-3 text-right">Aksi</th>
@@ -595,6 +597,20 @@
             <input id="admin-is-active" type="checkbox" checked class="w-4 h-4 rounded border-slate-300 text-gray-900" />
             Akun Aktif
           </label>
+        </div>
+        <!-- Akses Agent (RBAC pivot): hanya untuk role Admin — superadmin
+             otomatis berhak atas semua agent (dikontrol app.js) -->
+        <div id="admin-agent-wrap" class="hidden">
+          <label class="block text-sm font-medium text-slate-700 mb-1">
+            Akses Agent <span class="text-red-500">*</span>
+          </label>
+          <select id="admin-agent"
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+            <option value="">— Memuat daftar agent… —</option>
+          </select>
+          <p class="text-xs text-slate-400 mt-1">
+            Admin hanya melihat sesi WhatsApp milik agent yang dipilih ini.
+          </p>
         </div>
         <div class="flex justify-end gap-3 pt-2">
           <button type="button" data-close-modal
