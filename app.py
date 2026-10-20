@@ -487,8 +487,14 @@ def logout():
 @api_endpoint
 def dashboard_charts():
     """Dataset dua chart dashboard: biaya AI per model (bulan ini) dan
-    tren pelanggan unik 7 hari terakhir."""
-    return ok(data=get_dashboard_charts())
+    tren pelanggan unik 7 hari terakhir.
+
+    RBAC: dataset `models` (biaya AI = data finansial) hanya dikirim ke
+    superadmin — role `admin` hanya menerima tren pelanggan."""
+    data = get_dashboard_charts()
+    if g.current_admin.role != AdminRole.SUPERADMIN:
+        data.pop("models", None)
+    return ok(data=data)
 
 
 @app.route("/api/dashboard/stats", methods=["GET"])
@@ -570,6 +576,10 @@ def dashboard_stats():
         }
         for c in recent
     ]
+
+    # RBAC: biaya AI bulan ini = data finansial, hanya untuk superadmin.
+    if g.current_admin.role != AdminRole.SUPERADMIN:
+        stats.pop("ai_cost_month", None)
 
     return ok(data=stats)
 
@@ -2844,7 +2854,7 @@ def list_agents():
 # ENDPOINT: AI USAGE — monitoring token & estimasi biaya LLM
 # =====================================================================
 @app.route("/api/ai-usage", methods=["GET"])
-@admin_required  # data agregat & platform_id — aman utk semua role admin
+@superadmin_required  # biaya & token LLM = data finansial — khusus superadmin
 @api_endpoint
 def api_ai_usage():
     """Ringkasan pemakaian AI bulan/hari ini + 100 log terbaru.
@@ -3155,7 +3165,7 @@ def _fmt_readable(dt):
 
 
 @app.route("/api/knowledge-base", methods=["GET"])
-@admin_required  # read-only: aman untuk semua role admin
+@superadmin_required  # menu Knowledge Base hanya untuk superadmin (RBAC)
 @api_endpoint
 def list_knowledge_base():
     """Daftar semua dokumen yang pernah diunggah, terbaru dulu.
@@ -3210,7 +3220,7 @@ def delete_knowledge_base(doc_id: int):
 # ENDPOINT: WAHA SESSION MONITORING (proxy status sesi WhatsApp)
 # =====================================================================
 @app.route("/api/waha/sessions", methods=["GET"])
-@admin_required  # read-only: aman untuk semua role admin
+@superadmin_required  # menu WhatsApp Session hanya untuk superadmin (RBAC)
 @api_endpoint
 def list_waha_sessions():
     """Proxy daftar sesi WhatsApp dari server WAHA untuk menu monitoring.
@@ -3645,6 +3655,29 @@ def reset_admin_password(username: str, new_password: str):
         db.close()
 
 
+def set_admin_role(username: str, role: str):
+    """Ubah role seorang admin (superadmin/admin).
+    Jalankan:  python app.py --set-role <username> <superadmin|admin>
+
+    Berguna untuk mempromosikan admin pertama menjadi superadmin agar tidak
+    terkunci dari menu manajemen (RBAC), tanpa menyentuh database manual.
+    """
+    if role not in (AdminRole.SUPERADMIN.value, AdminRole.ADMIN.value):
+        print("[GAGAL] Role harus 'superadmin' atau 'admin'.")
+        return
+    db = SessionLocal()
+    try:
+        admin = db.query(Admin).filter_by(username=username).first()
+        if admin is None:
+            print(f"[GAGAL] Admin '{username}' tidak ditemukan.")
+            return
+        admin.role = AdminRole(role)
+        db.commit()
+        print(f"[OK] Role admin '{username}' diubah menjadi '{role}'.")
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     if "--seed" in sys.argv:
         seed_superadmin()
@@ -3654,6 +3687,12 @@ if __name__ == "__main__":
             print("Pemakaian: python app.py --reset-password <username> <password_baru>")
         else:
             reset_admin_password(sys.argv[idx + 1], sys.argv[idx + 2])
+    elif "--set-role" in sys.argv:
+        idx = sys.argv.index("--set-role")
+        if len(sys.argv) < idx + 3:
+            print("Pemakaian: python app.py --set-role <username> <superadmin|admin>")
+        else:
+            set_admin_role(sys.argv[idx + 1], sys.argv[idx + 2])
     else:
         # socketio.run (BUKAN app.run) agar Socket.IO aktif saat dev;
         # di production gunicorn tetap memakai app:app (lihat Dockerfile).

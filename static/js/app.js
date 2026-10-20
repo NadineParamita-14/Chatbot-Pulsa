@@ -173,6 +173,10 @@ function applyRbacUi() {
   document.querySelectorAll("[data-superadmin-only]").forEach((el) => {
     el.classList.toggle("hidden", !isSuper);
   });
+  // Kartu "Tren Pelanggan Aktif" memenuhi lebar grid saat kartu biaya AI
+  // (superadmin-only) disembunyikan untuk role admin.
+  const usersCard = document.getElementById("chart-users-card");
+  if (usersCard) usersCard.classList.toggle("lg:col-span-2", !isSuper);
 }
 
 // ---------------------------------------------------------------------
@@ -264,7 +268,9 @@ async function renderDashboard() {
 
   // Kartu statistik khusus aplikasi Customer Service (fitur pulsa sudah
   // dimatikan): aktivitas percakapan, pemakaian AI, hasil unreg DCB,
-  // dan moderasi (blokir / mode manual).
+  // dan moderasi (blokir / mode manual). RBAC: kartu "Biaya AI Bulan Ini"
+  // hanya untuk superadmin (backend pun hanya mengirim nilainya ke superadmin).
+  const isSuper = App.user && App.user.role === "superadmin";
   const cards = [
     {
       label: "Total Pelanggan", value: s.total_customers, color: "bg-orange-400",
@@ -282,10 +288,15 @@ async function renderDashboard() {
       label: "Balasan AI Hari Ini", value: s.ai_replies_today, color: "bg-teal-500",
       icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9.5 16.75c-.283.66-.68 1.256-1.178 1.77a5.517 5.517 0 01-1.82 1.187 5.5 5.5 0 01-4.29.093 5.486 5.486 0 01-1.817-1.13 5.5 5.5 0 01-1.664-4.238 5.5 5.5 0 011.596-3.988m8.916 8.457L12 21l3.5-3.5m-3.187 2.404l.844-.844m6.255-6.256l.844-.844M18.596 8.5l.844-.844M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-8.5 5.5a7.5 7.5 0 01-7.5-7.5 7.5 7.5 0 017.5-7.5 7.5 7.5 0 017.5 7.5 7.5 7.5 0 01-7.5 7.5z"/>`,
     },
-    {
-      label: "Biaya AI Bulan Ini", value: formatIDR(s.ai_cost_month), color: "bg-indigo-500",
-      icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/>`,
-    },
+    // Disisipkan kondisional: role admin tidak melihat biaya AI (RBAC)
+    ...(isSuper
+      ? [
+          {
+            label: "Biaya AI Bulan Ini", value: formatIDR(s.ai_cost_month), color: "bg-indigo-500",
+            icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/>`,
+          },
+        ]
+      : []),
     {
       label: "Unreg Berhasil", value: s.unreg_success, color: "bg-emerald-500",
       icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>`,
@@ -345,7 +356,7 @@ async function renderDashboardCharts() {
   if (typeof Chart === "undefined") return; // CDN gagal — lewati diam-diam
 
   const res = await Api.get("/dashboard/charts");
-  const { models, users } = res.data;
+  const { models, users } = res.data; // models = undefined untuk role admin (RBAC)
 
   // Tipografi chart mengikuti UI (Plus Jakarta Sans)
   Chart.defaults.font.family = "Plus Jakarta Sans, sans-serif";
@@ -354,7 +365,8 @@ async function renderDashboardCharts() {
   if (dashboardCharts.users) dashboardCharts.users.destroy();
 
   // 1. Bar chart biaya per model AI — hitam minimalis, sudut membulat
-  const modelsCtx = document.getElementById("chart-models");
+  // (kartu + datanya hanya ada untuk superadmin)
+  const modelsCtx = models ? document.getElementById("chart-models") : null;
   if (modelsCtx) {
     dashboardCharts.models = new Chart(modelsCtx, {
       type: "bar",
@@ -1200,8 +1212,8 @@ async function handleAgentCreate(event) {
 
 // =====================================================================
 // VIEW: KNOWLEDGE BASE (RAG) — daftar dokumen + upload PDF
-// Daftar bisa dilihat semua role admin; upload & hapus hanya superadmin
-// (sesuai RBAC backend: GET admin_required, POST/DELETE superadmin_only).
+// Menu khusus superadmin (RBAC): route diblokir router.js utk role admin
+// dan seluruh endpoint /api/knowledge-base bertanda @superadmin_required.
 // =====================================================================
 
 /** Format ukuran byte menjadi teks ringkas, cth: 1.2 KB / 3.4 MB. */

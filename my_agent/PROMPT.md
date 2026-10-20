@@ -1837,3 +1837,40 @@ Please implement an `unread_count` tracking system for human admins. This requir
    - Fire a `fetch()` or AJAX POST request to the `/api/sessions/<session_id>/mark_read` endpoint to reset the count in the database behind the scenes.
 
 Please provide the necessary Python backend code and the frontend JavaScript/HTML modifications to achieve this. Ensure the badge styling looks modern (e.g., using Bootstrap/Tailwind badge classes if applicable).
+
+# Context
+We are implementing Role-Based Access Control (RBAC) in our Flask Admin Panel to separate managerial tasks from operational Customer Service tasks. We need two roles: `superadmin` and `admin` (normal CS).
+
+# Goal
+Restrict access to sensitive menus and financial data. 
+- Normal `admin` should ONLY see the "Dashboard" and "Riwayat Chat". 
+- `superadmin` has access to everything.
+
+# Task
+Please implement this RBAC system step-by-step.
+
+## Step 1: Database Update
+1. Update the Administrator/User database model to include a `role` column (String, default: 'admin').
+2. Provide a quick Python script or Flask CLI command to set an existing user (e.g., the first created admin) to 'superadmin' so we don't get locked out.
+
+## Step 2: Backend Route Protection (`app.py` or routes file)
+1. Create a custom decorator called `@superadmin_required` (similar to `@login_required`). If a normal 'admin' tries to access a protected route, flash an "Access Denied" message and redirect them to the Dashboard.
+2. Apply this `@superadmin_required` decorator to the following routes/endpoints:
+   - WhatsApp Session (`/whatsapp-session`)
+   - AI Usage (`/ai-usage`)
+   - Knowledge Base (`/knowledge-base`)
+   - Agent Config (`/agent-config`)
+   - Manajemen Admin (`/manajemen-admin`)
+3. Ensure the `current_user` object (or session dictionary) passed to the Jinja2 templates contains the `role` attribute.
+
+## Step 3: Frontend UI - Sidebar Updates (Jinja2)
+1. Locate the HTML file containing the sidebar navigation.
+2. Wrap the menu items for WhatsApp Session, AI Usage, Knowledge Base, Agent Config, and Manajemen Admin inside a Jinja2 if-statement: `{% if current_user.role == 'superadmin' %}` (adjust syntax based on how the user object is passed to templates).
+
+## Step 4: Frontend UI - Dashboard Updates (Jinja2)
+1. Locate the `dashboard.html` file.
+2. Find the stat card for "Biaya AI Bulan Ini" and wrap it in the superadmin if-statement.
+3. Find the chart/container for "Penggunaan Model AI (Biaya)" and wrap it in the superadmin if-statement.
+4. Normal admins should still see Total Pelanggan, Chat Hari Ini, Total Chat, Balasan AI Hari Ini, Unreg Berhasil, Pengguna Diblokir, Mode Manual Aktif, and Tren Pelanggan Aktif.
+
+Please provide the necessary code modifications for the database, backend routes, and HTML templates.

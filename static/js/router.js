@@ -23,16 +23,19 @@ const Routes = {
     view: "view-waha",
     title: "WhatsApp Session",
     render: () => renderWahaSessions(),
+    superadminOnly: true,
   },
   "ai-usage": {
     view: "view-ai-usage",
     title: "AI Usage",
     render: () => renderAiUsage(),
+    superadminOnly: true,
   },
   "knowledge-base": {
     view: "view-knowledge-base",
     title: "Knowledge Base",
     render: () => renderKnowledgeBase(),
+    superadminOnly: true,
   },
   "agent-config": {
     view: "view-agent",
