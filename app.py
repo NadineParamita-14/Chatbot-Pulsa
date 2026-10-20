@@ -3220,20 +3220,35 @@ def delete_knowledge_base(doc_id: int):
 # =====================================================================
 # ENDPOINT: WAHA SESSION MONITORING (proxy status sesi WhatsApp)
 # =====================================================================
+def _assigned_agents_for_admin(db, admin) -> list | None:
+    """Agent yang ditugaskan ke admin ini; None = superadmin (tanpa batas).
+
+    Sumber: pivot admin_agent_access -> agent_configs (0..1 baris utk admin).
+    """
+    if admin.role == AdminRole.SUPERADMIN:
+        return None
+    return (
+        db.query(AgentConfig)
+        .join(AdminAgentAccess, AdminAgentAccess.agent_id == AgentConfig.agent_id)
+        .filter(AdminAgentAccess.admin_id == admin.id)
+        .all()
+    )
+
+
 def _allowed_waha_sessions_for_admin(db, admin) -> set | None:
     """Session_name yang boleh dilihat admin ini; None = tanpa batas.
 
     superadmin -> None (semua sesi). admin -> session_name milik agent
-    yang ditugaskan padanya lewat pivot admin_agent_access (join ke
-    agent_waha_sessions pemetaan agent -> sesi WAHA).
+    yang ditugaskan padanya (agent_waha_sessions pemetaan agent -> sesi).
     """
     if admin.role == AdminRole.SUPERADMIN:
         return None
+    agents = _assigned_agents_for_admin(db, admin)
+    if not agents:
+        return set()
     rows = (
         db.query(AgentWahaSession.session_name)
-        .join(AgentConfig, AgentConfig.id == AgentWahaSession.agent_id)
-        .join(AdminAgentAccess, AdminAgentAccess.agent_id == AgentConfig.agent_id)
-        .filter(AdminAgentAccess.admin_id == admin.id)
+        .filter(AgentWahaSession.agent_id.in_([a.id for a in agents]))
         .all()
     )
     return {r[0] for r in rows}
@@ -3252,7 +3267,8 @@ def list_waha_sessions():
     """
     db = get_db()
     allowed = _allowed_waha_sessions_for_admin(db, g.current_admin)
-    if allowed is not None and not allowed:
+    assigned_agents = _assigned_agents_for_admin(db, g.current_admin)
+    if assigned_agents is not None and not assigned_agents:
         return ok(
             data=[],
             message="Belum ada agent yang ditugaskan ke akun Anda.",
@@ -3283,9 +3299,23 @@ def list_waha_sessions():
             "push_name": me.get("pushName"),
         })
 
-    # RBAC admin: sesukan daftar ke sesi milik agent yang ditugaskan
+    # RBAC admin: sesukan daftar ke sesi milik agent yang ditugaskan.
+    # UX: bila agent penugasannya belum punya sesi WAHA sama sekali, JANGAN
+    # tampilkan keadaan kosong — kirim SATU kartu placeholder (nama agent,
+    # belum terhubung) berisi agent_id agar tombol Scan QR bisa mem-bootstrap
+    # sesi barunya lewat POST /api/agent/<agent_id>/waha/start.
     if allowed is not None:
         sessions = [s for s in sessions if s.get("name") in allowed]
+        if not sessions:
+            agent = assigned_agents[0]
+            sessions = [{
+                "name": agent.name or agent.agent_id,
+                "status": None,
+                "phone": None,
+                "push_name": None,
+                "placeholder": True,
+                "agent_id": agent.agent_id,
+            }]
 
     return ok(data=sessions)
 
@@ -3366,7 +3396,7 @@ def list_agent_waha_sessions(agent_id: str):
 
 
 @app.route("/api/agent/<agent_id>/waha/start", methods=["POST"])
-@superadmin_required
+@admin_required  # superadmin bebas; admin hanya utk agent penugasannya
 @api_endpoint
 def start_agent_waha_session(agent_id: str):
     """Mulai sesi WAHA baru untuk agent (langkah pertama "Generate QR WA").
@@ -3375,8 +3405,14 @@ def start_agent_waha_session(agent_id: str):
     2. POST /api/sessions/start ke WAHA -> sesi menunggu scan QR.
     3. Catat ke agent_waha_sessions agar statusnya bisa dipantau/dihapus.
     4. Daftarkan webhook level-sesi (best-effort) ke /webhook/whatsapp.
+    RBAC: role admin hanya boleh bootstrap sesi utk agent yang ditugaskan
+    kepadanya (kartu placeholder halaman WhatsApp Session).
     """
     db = get_db()
+    assigned = _assigned_agents_for_admin(db, g.current_admin)
+    if assigned is not None and all(a.agent_id != agent_id for a in assigned):
+        return err("Agent ini bukan milik penugasan Anda.", 403)
+
     cfg = db.query(AgentConfig).filter_by(agent_id=agent_id).first()
     if cfg is None:
         return err("Agent tidak ditemukan.", 404)

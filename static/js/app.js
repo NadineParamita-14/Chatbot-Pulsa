@@ -1475,14 +1475,24 @@ async function fetchWahaSessions(silent = false) {
 
   // Sesi yang menunggu pemindaian QR memunculkan tombol "Scan QR"
   // (modal + polling — alur tanpa reload, lihat wahaPageQrState).
+  // Kartu PLACEHOLDER (agent belum punya sesi sama sekali — dikirim backend
+  // dgn flag placeholder:true) juga selalu memunculkan tombol; klik-nya
+  // me-bootstrap sesi WAHA baru utk agent dulu (startPlaceholderSession).
   const SCAN_STATUSES = ["SCAN_QR", "SCAN_QR_CODE", "STARTING"];
   const isWorking = (s) => (s.status || "").toUpperCase() === "WORKING";
+  const isPlaceholder = (s) => !!s.placeholder;
+  const canScan = (s) =>
+    isPlaceholder(s) || SCAN_STATUSES.includes((s.status || "").toUpperCase());
+  const statusBadgeFor = (s) =>
+    isPlaceholder(s)
+      ? `<span class="px-2.5 py-0.5 inline-flex text-xs font-medium rounded-full bg-slate-200 text-slate-700">TIDAK TERHUBUNG</span>`
+      : wahaStatusBadge(s.status);
 
   grid.innerHTML = sessions
     .map(
       (s) => `
     <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 hover:-translate-y-0.5 transition-all"
-         data-waha-card="${esc(s.name || "")}" data-waha-status="${esc(s.status || "")}">
+         data-waha-card="${esc(isPlaceholder(s) ? s.agent_id : s.name || "")}" data-waha-status="${esc(s.status || "")}">
       <div class="flex items-start justify-between gap-3">
         <div class="flex items-center gap-3 min-w-0">
           <div class="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0">
@@ -1492,18 +1502,22 @@ async function fetchWahaSessions(silent = false) {
           </div>
           <div class="min-w-0">
             <p class="text-sm font-semibold text-slate-800 truncate">${esc(s.name)}</p>
-            <p class="text-xs text-slate-400 font-mono truncate" data-waha-phone>${esc(s.phone || "nomor belum terhubung")}</p>
+            <p class="text-xs text-slate-400 font-mono truncate" data-waha-phone>${esc(s.phone || (isPlaceholder(s) ? "belum ada sesi WhatsApp" : "nomor belum terhubung"))}</p>
           </div>
         </div>
-        <span data-waha-badge>${wahaStatusBadge(s.status)}</span>
+        <span data-waha-badge>${statusBadgeFor(s)}</span>
       </div>
       <div class="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between gap-3 text-xs text-slate-500">
         <span class="min-w-0 truncate">Nama WhatsApp: <span class="font-medium text-slate-700">${esc(s.push_name || "-")}</span></span>
         <span class="inline-flex items-center gap-1.5 flex-shrink-0">
           <span data-waha-dot class="w-2 h-2 rounded-full ${isWorking(s) ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}"></span>
           <span data-waha-status-text>${isWorking(s) ? "Terhubung" : "Tidak terhubung"}</span>
-          ${SCAN_STATUSES.includes((s.status || "").toUpperCase())
-            ? `<button type="button" data-waha-scan="${esc(s.name)}"
+          ${canScan(s)
+            ? `<button type="button" ${
+                isPlaceholder(s)
+                  ? `data-waha-scan-agent="${esc(s.agent_id)}"`
+                  : `data-waha-scan="${esc(s.name)}"`
+              }
                 class="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-400 hover:bg-amber-500 text-amber-950 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition-colors">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z"/>
@@ -1518,11 +1532,16 @@ async function fetchWahaSessions(silent = false) {
     )
     .join("");
 
-  // Kartu dinamis -> pasang ulang listener tombol Scan QR tiap render
-  grid.querySelectorAll("[data-waha-scan]").forEach((btn) => {
+  // Kartu dinamis -> pasang ulang listener tombol Scan QR tiap render:
+  // kartu placeholder me-bootstrap sesi, kartu nyata langsung buka modal.
+  grid.querySelectorAll("[data-waha-scan], [data-waha-scan-agent]").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.preventDefault();
-      openWahaPageQrModal(btn.dataset.wahaScan);
+      if (btn.dataset.wahaScanAgent) {
+        startPlaceholderSession(btn.dataset.wahaScanAgent);
+      } else {
+        openWahaPageQrModal(btn.dataset.wahaScan);
+      }
     });
   });
 }
@@ -1538,7 +1557,28 @@ const wahaPageQrState = {
   session: null, // nama sesi yang menunggu scan
   timer: null,   // handle setInterval polling
   deadline: 0,   // batas waktu polling agar tidak abadi
+  bootstrapping: false, // pengaman dobel-klik tombol Scan QR placeholder
 };
+
+/**
+ * Tombol Scan QR pada kartu PLACEHOLDER: bootstrap sesi WAHA untuk agent
+ * penugasan admin (POST /agent/<id>/waha/start), segarkan daftar kartu
+ * (placeholder -> kartu sesi nyata), lalu buka modal QR sesi baru tersebut.
+ */
+async function startPlaceholderSession(agentId) {
+  if (wahaPageQrState.bootstrapping) return;
+  wahaPageQrState.bootstrapping = true;
+  try {
+    const res = await Api.post(`/agent/${encodeURIComponent(agentId)}/waha/start`);
+    showToast(res.message || "Sesi WhatsApp dibuat — silakan scan QR.");
+    fetchWahaSessions(true); // kartu placeholder digantikan kartu sesi nyata
+    openWahaPageQrModal(res.data.session_name);
+  } catch (e) {
+    showToast(e.message, "error");
+  } finally {
+    wahaPageQrState.bootstrapping = false;
+  }
+}
 
 /** Buka modal QR utk sesi halaman WAHA & mulai polling tiap 2 detik. */
 function openWahaPageQrModal(sessionName) {

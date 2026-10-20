@@ -1923,3 +1923,12 @@ Please implement the following updates step-by-step.
    - Dynamically update the DOM of that session's card: Change the yellow `SCAN_QR_CODE` badge to a green `WORKING` badge, and update the offline text indicator to a green `Terhubung` indicator, without reloading the page.
 
 Please provide the updated Python models, routes, and the exact HTML/JS modifications needed to achieve this.
+
+# Context
+In the WhatsApp Session page, the RBAC filtering is working, but it results in a bad UX for new agents. If a normal `admin` is assigned to an agent that does NOT have any existing WAHA session in the database yet, the page shows an empty state ("Tidak ada sesi WhatsApp"). 
+
+# Task
+Please update the backend route and frontend template logic so that a normal `admin` ALWAYS sees exactly ONE session card. 
+1. If a session already exists for their assigned agent, show that session card (current behavior).
+2. If NO session exists for their assigned agent yet, do not show the empty state. Instead, render a placeholder/default session card displaying their Agent's name, status "Tidak terhubung", and the "SCAN_QR_CODE" button.
+3. When they click the "SCAN_QR_CODE" button on this placeholder card, the backend should automatically create/initialize the session in WAHA for that agent before showing the QR Code modal.
