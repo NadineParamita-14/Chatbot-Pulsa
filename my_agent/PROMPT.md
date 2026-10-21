@@ -1932,3 +1932,14 @@ Please update the backend route and frontend template logic so that a normal `ad
 1. If a session already exists for their assigned agent, show that session card (current behavior).
 2. If NO session exists for their assigned agent yet, do not show the empty state. Instead, render a placeholder/default session card displaying their Agent's name, status "Tidak terhubung", and the "SCAN_QR_CODE" button.
 3. When they click the "SCAN_QR_CODE" button on this placeholder card, the backend should automatically create/initialize the session in WAHA for that agent before showing the QR Code modal.
+
+# Context
+We missed one page during our RBAC implementation. On the "Riwayat Chat" (Chat History) page, normal `admin` users can currently see the selection cards for ALL agents. We need to apply the exact same filtering logic here as we did for the WhatsApp Session page.
+
+# Task
+Please update the backend route that serves the Chat History page (e.g., `/chats` or the corresponding route).
+
+# Logic Requirements
+1. If `current_user.role == 'superadmin'`, fetch and pass ALL agents to the template (current behavior).
+2. If `current_user.role == 'admin'`, query the `admin_agent_access` pivot table to get their assigned `agent_id`. Then, fetch and pass ONLY that specific agent to the template.
+3. Ensure the Jinja2 template dynamically renders only the filtered agent(s) passed from the backend, so the normal admin only sees exactly one card to click on for monitoring chats.

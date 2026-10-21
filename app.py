@@ -2829,14 +2829,25 @@ except Exception as _e:  # pragma: no cover
 @admin_required
 @api_endpoint
 def list_agents():
-    """Daftar semua agent: ID, nama, status aktif (TANPA token/prompt).
+    """Daftar agent: ID, nama, status aktif (TANPA token/prompt).
 
     admin_required (bukan superadmin): dipakai juga pemilih agent di
     Riwayat Chat yang bisa diakses role admin. Data yang tampil tidak
     sensitif; detail berisi token tetap eksklusif superadmin via
-    GET /api/agent/config."""
+    GET /api/agent/config.
+
+    RBAC: superadmin menerima SEMUA agent; admin hanya agent yang
+    ditugaskan padanya di pivot admin_agent_access — selaras dengan
+    filter halaman WhatsApp Session, agar pemilih agent di Riwayat
+    Chat hanya menampilkan kartu agent miliknya."""
     db = get_db()
-    agents = db.query(AgentConfig).order_by(AgentConfig.agent_id).all()
+    assigned = _assigned_agents_for_admin(db, g.current_admin)
+    if assigned is None:  # superadmin — tanpa batas
+        agents = db.query(AgentConfig).order_by(AgentConfig.agent_id).all()
+        empty_message = "Belum ada agent terdaftar."
+    else:
+        agents = sorted(assigned, key=lambda a: a.agent_id)
+        empty_message = "Belum ada agent yang ditugaskan ke akun Anda."
     return ok(
         data=[
             {
@@ -2847,7 +2858,8 @@ def list_agents():
                 "updated_at": _iso(a.updated_at),
             }
             for a in agents
-        ]
+        ],
+        message=empty_message if not agents else "OK",
     )
 
 

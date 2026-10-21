@@ -542,9 +542,11 @@ async function renderChatAgentCards() {
   }
 
   if (!agents.length) {
+    // Pesan dari backend membedakan "belum ada agent" (superadmin) vs
+    // "belum ada penugasan" (admin) — selaras filter RBAC /api/agents.
     grid.innerHTML = `
       <div class="col-span-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-10 text-center">
-        <p class="text-slate-500">Belum ada agent terdaftar.</p>
+        <p class="text-slate-500">${esc(res.message || "Belum ada agent terdaftar.")}</p>
       </div>`;
     return;
   }
