@@ -2028,3 +2028,16 @@ Please implement the following updates step-by-step:
 1. In the `knowledge_base.html` template, address the text overflow issue in the "NAMA FILE" column of the "Dokumen Terunggah" table.
 2. Add a CSS class to the `<td>` or `<div>` containing the file name to enforce word-wrapping. If using Tailwind CSS, use `break-all` or `break-words`. If using custom CSS, add `word-break: break-all;` or `overflow-wrap: break-word;`.
 3. Ensure this formatting applies cleanly to both the desktop view and the horizontally scrolling mobile view, preventing long filenames like `Knowledge_Base_CS_PT_WAKI.pdf` from breaking the table layout.
+
+# Context
+There is a CSS layout bug on the mobile view of the "Knowledge Base" table. The "NAMA FILE" column text is breaking vertically letter-by-letter because the column is squished too much.
+
+# Task
+Please fix the text wrapping issue in the `knowledge_base.html` table.
+
+## Step 1: Fix NAMA FILE column width and wrapping
+1. Locate the `<th>` and `<td>` for the "NAMA FILE" column in the Knowledge Base table.
+2. Remove the `break-all` or `word-break` utility classes that were previously added.
+3. Add a minimum width to the column to prevent it from squishing. If using Tailwind, add `min-w-[200px]` (or similar) to the `<th>` and `<td>`.
+4. Add the `whitespace-nowrap` class (or `white-space: nowrap;` in CSS) to the `<td>` containing the filename so that long filenames (like "Knowledge_Base_CS_PT_WAKI.pdf") stay on a single horizontal line.
+5. Because the table is already wrapped in `overflow-x-auto` (from our previous update), the user will simply be able to swipe horizontally to read the full filename without breaking the vertical layout of the rows.

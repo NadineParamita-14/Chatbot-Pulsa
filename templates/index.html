@@ -404,7 +404,9 @@
                 <table class="w-full min-w-[420px] text-sm text-left">
                   <thead class="bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                     <tr>
-                      <th class="px-5 py-3">Nama File</th>
+                      <!-- min-w: cegah kolom nama file memampat (teks patah
+                           vertikal) — nama panjang meluap & digeser horizontal -->
+                      <th class="px-5 py-3 min-w-[200px]">Nama File</th>
                       <th class="px-5 py-3">Agent</th>
                       <th class="px-5 py-3">Ukuran</th>
                       <th class="px-5 py-3 whitespace-nowrap">Diunggah</th>
