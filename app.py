@@ -149,7 +149,11 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 JWT_SECRET = os.getenv("JWT_ADMIN_SECRET", "rahasia-dev-ganti-di-produksi")
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "12"))
+# Sesi login persisten 3 hari: token bertahan 72 jam di localStorage
+# sehingga admin di mobile tidak perlu login ulang setiap hari
+# (pengganti PERMANENT_SESSION_LIFETIME — auth panel ini memakai JWT,
+# bukan session cookie Flask).
+JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "72"))
 
 
 # =====================================================================
@@ -177,8 +181,13 @@ def close_db(exception=None):
 # =====================================================================
 # HELPER RESPONS JSON TERSTANDAR
 # =====================================================================
-def ok(data=None, message="OK", code=200):
-    return jsonify({"status": "success", "data": data, "message": message}), code
+def ok(data=None, message="OK", code=200, meta=None):
+    """Respons sukses terstandar. `meta` opsional membawa info paginasi
+    (page/per_page/total/total_pages) — frontend membacanya lewat res.meta."""
+    body = {"status": "success", "data": data, "message": message}
+    if meta is not None:
+        body["meta"] = meta
+    return jsonify(body), code
 
 
 def err(message="Terjadi kesalahan", code=400, data=None):
@@ -403,8 +412,9 @@ def serialize_agent_config(cfg: AgentConfig) -> dict:
 # =====================================================================
 # HELPER PAGINASI & VALIDASI
 # =====================================================================
-def paginate(query, default_per_page=20):
-    """Potong query menjadi halaman. Kembalikan (items, meta)."""
+def paginate(query, default_per_page=10):
+    """Potong query menjadi halaman (maks 10 baris/halaman secara default).
+    Kembalikan (items, meta)."""
     page = max(request.args.get("page", 1, type=int) or 1, 1)
     per_page = min(max(request.args.get("per_page", default_per_page, type=int) or default_per_page, 1), 100)
     total = query.count()
@@ -956,8 +966,16 @@ def list_chat_users():
 @api_endpoint
 def list_chat_users_by_agent(agent_id: str):
     """Daftar pengguna unik yang pernah chat dengan SATU agent —
-    view dua tahap Admin Panel (pilih agent -> pilih kontak)."""
-    return ok(data=get_chatted_users(agent_id))
+    view dua tahap Admin Panel (pilih agent -> pilih kontak).
+
+    Mendukung filter channel (?channel=whatsapp|telegram) dan paginasi
+    (?page=N, 10 kontak/halaman) — meta dikirim lewat res.meta."""
+    channel = (request.args.get("channel") or "").strip().lower() or None
+    if channel not in (None, CHANNEL_WHATSAPP, CHANNEL_TELEGRAM):
+        return err(f"Channel '{channel}' tidak dikenal.", 400)
+    page = max(request.args.get("page", 1, type=int) or 1, 1)
+    users, meta = get_chatted_users(agent_id, channel=channel, page=page, per_page=10)
+    return ok(data=users, meta=meta)
 
 
 @app.route("/api/chats/<int:user_id>", methods=["GET"])
@@ -2870,14 +2888,17 @@ def list_agents():
 @superadmin_required  # biaya & token LLM = data finansial — khusus superadmin
 @api_endpoint
 def api_ai_usage():
-    """Ringkasan pemakaian AI bulan/hari ini + 100 log terbaru.
+    """Ringkasan pemakaian AI bulan/hari ini + log terpaginasi (10/halaman).
 
     Sumber data ai_usage_logs (satu baris per balasan AI webhook)."""
+    page = max(request.args.get("page", 1, type=int) or 1, 1)
+    logs, meta = get_ai_usage_logs(page=page, per_page=10)
     return ok(
         data={
             "summary": get_ai_usage_summary(),
-            "logs": get_ai_usage_logs(limit=100),
-        }
+            "logs": logs,
+        },
+        meta=meta,
     )
 
 
@@ -3187,23 +3208,26 @@ def list_knowledge_base():
     dokumen bersama yang tersuntik ke semua agent.
     """
     db = get_db()
-    documents = (
+    documents, meta = paginate(
         db.query(Document, AgentConfig.name)
         .outerjoin(AgentConfig, AgentConfig.agent_id == Document.agent_id)
-        .order_by(Document.upload_at.desc())
-        .all()
+        .order_by(Document.upload_at.desc()),
+        default_per_page=10,
     )
-    return ok(data=[
-        {
-            "id": d.id,
-            "file_name": d.file_name,
-            "size": d.size,
-            "upload_at": _fmt_readable(d.upload_at),
-            "agent_id": d.agent_id,
-            "agent_name": agent_name,
-        }
-        for d, agent_name in documents
-    ])
+    return ok(
+        data=[
+            {
+                "id": d.id,
+                "file_name": d.file_name,
+                "size": d.size,
+                "upload_at": _fmt_readable(d.upload_at),
+                "agent_id": d.agent_id,
+                "agent_name": agent_name,
+            }
+            for d, agent_name in documents
+        ],
+        meta=meta,
+    )
 
 
 @app.route("/api/knowledge-base/<int:doc_id>", methods=["DELETE"])
@@ -3594,7 +3618,9 @@ def list_admins():
     dicatat di pivot); admin -> daftar agent yang ditugaskan (0..1 agent).
     """
     db = get_db()
-    admins = db.query(Admin).order_by(Admin.created_at).all()
+    admins, meta = paginate(
+        db.query(Admin).order_by(Admin.created_at), default_per_page=10
+    )
 
     access_rows = (
         db.query(AdminAgentAccess.admin_id, AgentConfig.agent_id, AgentConfig.name)
@@ -3612,7 +3638,7 @@ def list_admins():
         item = serialize_admin(a)
         item["agent_access"] = access_by_admin.get(a.id, [])
         data.append(item)
-    return ok(data=data)
+    return ok(data=data, meta=meta)
 
 
 def _validate_agent_id(db, agent_id: str) -> str:

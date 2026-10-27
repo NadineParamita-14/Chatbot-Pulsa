@@ -447,7 +447,7 @@ def mark_chat_session_read(session_id: int) -> bool:
         session.close()
 
 
-def get_chatted_users(agent_id: str):
+def get_chatted_users(agent_id: str, channel: str | None = None, page: int | None = None, per_page: int = 10):
     """Daftar pengguna unik yang pernah chat dengan SATU agent tertentu.
 
     Dipakai Admin Panel (view dua tahap: pilih agent -> pilih user).
@@ -456,10 +456,14 @@ def get_chatted_users(agent_id: str):
     bukan lagi telegram_id — agar mendukung multi-channel.
     Disertakan juga session_id + unread_count percakapan (badge belum
     dibaca di sidebar; NULL/0 = tidak ada pesan yang belum ditinjau).
+
+    `channel` opsional menyaring 'whatsapp'/'telegram' di sisi server.
+    Tanpa `page`: seluruh daftar (perilaku lama). Dengan `page`:
+    paginasi `per_page` baris/halaman — kembalikan (items, meta).
     """
     session = SessionLocal()
     try:
-        rows = (
+        query = (
             session.query(
                 ChatHistory.user_id,
                 User.channel,
@@ -481,22 +485,37 @@ def get_chatted_users(agent_id: str):
                 & (ChatSession.agent_id == ChatHistory.agent_id),
             )
             .filter(ChatHistory.agent_id == agent_id)
-            .group_by(
-                ChatHistory.user_id,
-                User.channel,
-                User.platform_id,
-                User.telegram_id,
-                User.whatsapp_lid,
-                User.full_name,
-                User.username,
-                User.is_manual_mode,
-                ChatSession.id,
-                ChatSession.unread_count,
-            )
-            .order_by(func.max(ChatHistory.created_at).desc())
-            .all()
         )
-        return [
+        if channel:
+            query = query.filter(User.channel == channel)
+        query = query.group_by(
+            ChatHistory.user_id,
+            User.channel,
+            User.platform_id,
+            User.telegram_id,
+            User.whatsapp_lid,
+            User.full_name,
+            User.username,
+            User.is_manual_mode,
+            ChatSession.id,
+            ChatSession.unread_count,
+        ).order_by(func.max(ChatHistory.created_at).desc())
+
+        meta = None
+        if page is not None:
+            per_page = min(max(int(per_page), 1), 100)
+            page = max(int(page), 1)
+            total = query.count()
+            meta = {
+                "page": page,
+                "per_page": per_page,
+                "total": total,
+                "total_pages": (total + per_page - 1) // per_page,
+            }
+            query = query.offset((page - 1) * per_page).limit(per_page)
+
+        rows = query.all()
+        items = [
             {
                 "user_id": r.user_id,
                 "channel": r.channel,
@@ -513,6 +532,7 @@ def get_chatted_users(agent_id: str):
             }
             for r in rows
         ]
+        return (items, meta) if meta is not None else items
     finally:
         session.close()
 
@@ -1468,17 +1488,36 @@ def get_dashboard_charts() -> dict:
         session.close()
 
 
-def get_ai_usage_logs(limit: int = 100) -> list:
-    """Log pemakaian AI terbaru (default 100 baris), terbaru di atas."""
+def get_ai_usage_logs(limit: int = 100, page: int | None = None, per_page: int = 10):
+    """Log pemakaian AI, terbaru di atas.
+
+    Tanpa `page`: `limit` baris terbaru (perilaku lama, kompatibel).
+    Dengan `page`: paginasi `per_page` baris/halaman —
+    kembalikan (items, meta) dengan meta page/per_page/total/total_pages.
+    """
     session = SessionLocal()
     try:
-        rows = (
-            session.query(AiUsageLog)
-            .order_by(AiUsageLog.created_at.desc(), AiUsageLog.id.desc())
-            .limit(limit)
-            .all()
+        query = session.query(AiUsageLog).order_by(
+            AiUsageLog.created_at.desc(), AiUsageLog.id.desc()
         )
-        return [
+
+        meta = None
+        if page is not None:
+            per_page = min(max(int(per_page), 1), 100)
+            page = max(int(page), 1)
+            total = query.count()
+            meta = {
+                "page": page,
+                "per_page": per_page,
+                "total": total,
+                "total_pages": (total + per_page - 1) // per_page,
+            }
+            query = query.offset((page - 1) * per_page).limit(per_page)
+        else:
+            query = query.limit(int(limit))
+
+        rows = query.all()
+        items = [
             {
                 "id": r.id,
                 "agent_id": r.agent_id,
@@ -1491,6 +1530,7 @@ def get_ai_usage_logs(limit: int = 100) -> list:
             }
             for r in rows
         ]
+        return (items, meta) if meta is not None else items
     finally:
         session.close()
 

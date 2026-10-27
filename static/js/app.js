@@ -159,12 +159,6 @@ function openConfirm({ title, message, confirmText = "Ya, Lanjutkan", danger = t
   openModal("modal-confirm");
 }
 
-/** Tutup sidebar di layar mobile. */
-function closeSidebar() {
-  document.getElementById("sidebar").classList.add("-translate-x-full");
-  document.getElementById("sidebar-overlay").classList.add("hidden");
-}
-
 // ---------------------------------------------------------------------
 // RBAC UI — sembunyikan menu khusus superadmin
 // ---------------------------------------------------------------------
@@ -180,23 +174,84 @@ function applyRbacUi() {
 }
 
 // ---------------------------------------------------------------------
-// PAGINATION (kontrol Sebelumnya / Berikutnya)
+// PAGINATION (Sebelumnya / nomor halaman / Berikutnya — 10 baris/halaman)
 // ---------------------------------------------------------------------
-function renderPagination(container, meta, onPage) {
+/**
+ * Susunan nomor halaman ala Flask .iter_pages(): tepi (2 halaman pertama
+ * & terakhir) + tetangga halaman aktif (±1), celah ditandai "…".
+ */
+function paginationPages(current, totalPages) {
+  const picked = new Set();
+  const push = (p) => {
+    if (p >= 1 && p <= totalPages) picked.add(p);
+  };
+  push(1); push(2);
+  for (let p = current - 1; p <= current + 1; p++) push(p);
+  push(totalPages - 1); push(totalPages);
+
+  const sorted = [...picked].sort((a, b) => a - b);
+  const out = [];
+  let prev = 0;
+  for (const p of sorted) {
+    if (p - prev > 1) out.push("…");
+    out.push(p);
+    prev = p;
+  }
+  return out;
+}
+
+/**
+ * Render kontrol paginasi ke `container` dari meta backend
+ * {page, per_page, total, total_pages}. `compact` = varian ringkas
+ * (tombol ‹ › + "2/5") untuk area sempit seperti pane kontak chat.
+ */
+function renderPagination(container, meta, onPage, { compact = false } = {}) {
   if (!meta || meta.total_pages <= 1) {
-    container.innerHTML = meta
-      ? `<span class="text-slate-500">Total ${meta.total} data</span><span></span>`
-      : "";
+    container.innerHTML =
+      !compact && meta && meta.total
+        ? `<span class="text-slate-500">Total ${meta.total} data</span>`
+        : "";
     return;
   }
-  container.innerHTML = `
-    <span class="text-slate-500">Halaman ${meta.page} dari ${meta.total_pages} — total ${meta.total} data</span>
-    <div class="flex gap-2">
-      <button data-page="${meta.page - 1}" ${meta.page <= 1 ? "disabled" : ""}
-        class="px-4 py-1.5 rounded-full border border-gray-300 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">Sebelumnya</button>
-      <button data-page="${meta.page + 1}" ${meta.page >= meta.total_pages ? "disabled" : ""}
-        class="px-4 py-1.5 rounded-full border border-gray-300 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">Berikutnya</button>
-    </div>`;
+
+  const baseBtn =
+    "disabled:opacity-40 disabled:cursor-not-allowed transition-colors";
+  let html;
+
+  if (compact) {
+    html = `
+      <div class="flex items-center gap-2">
+        <button data-page="${meta.page - 1}" ${meta.page <= 1 ? "disabled" : ""} aria-label="Halaman sebelumnya"
+          class="w-7 h-7 rounded-full border border-slate-300 text-slate-600 hover:bg-gray-100 ${baseBtn}">‹</button>
+        <span class="text-xs text-slate-500 whitespace-nowrap">${meta.page} / ${meta.total_pages}</span>
+        <button data-page="${meta.page + 1}" ${meta.page >= meta.total_pages ? "disabled" : ""} aria-label="Halaman berikutnya"
+          class="w-7 h-7 rounded-full border border-slate-300 text-slate-600 hover:bg-gray-100 ${baseBtn}">›</button>
+      </div>`;
+  } else {
+    const pageBtns = paginationPages(meta.page, meta.total_pages)
+      .map((p) =>
+        p === "…"
+          ? `<span class="px-1 text-slate-400 select-none">…</span>`
+          : `<button data-page="${p}"
+              class="min-w-[2rem] h-8 px-2 rounded-full text-xs font-semibold ${
+                p === meta.page
+                  ? "bg-gray-900 text-white"
+                  : "border border-gray-300 text-slate-600 hover:bg-gray-100"
+              } ${baseBtn}">${p}</button>`
+      )
+      .join("");
+    html = `
+      <span class="text-slate-500 text-center sm:text-left">Halaman ${meta.page} dari ${meta.total_pages} — total ${meta.total} data</span>
+      <div class="flex items-center justify-center flex-wrap gap-2">
+        <button data-page="${meta.page - 1}" ${meta.page <= 1 ? "disabled" : ""}
+          class="px-3 h-8 rounded-full border border-gray-300 text-sm hover:bg-gray-100 ${baseBtn}">‹ Sebelumnya</button>
+        ${pageBtns}
+        <button data-page="${meta.page + 1}" ${meta.page >= meta.total_pages ? "disabled" : ""}
+          class="px-3 h-8 rounded-full border border-gray-300 text-sm hover:bg-gray-100 ${baseBtn}">Berikutnya ›</button>
+      </div>`;
+  }
+
+  container.innerHTML = html;
   container.querySelectorAll("button[data-page]").forEach((btn) => {
     btn.addEventListener("click", () => onPage(parseInt(btn.dataset.page, 10)));
   });
@@ -338,7 +393,7 @@ async function renderDashboard() {
           <td class="px-5 py-3">${statusBadge(c.channel)}</td>
           <td class="px-5 py-3"><span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-600">${esc(c.agent_id)}</span></td>
           <td class="px-5 py-3 text-slate-600 max-w-xs truncate" title="${esc(c.input)}">${esc(c.input)}</td>
-          <td class="px-5 py-3 text-slate-500">${formatDateTime(c.created_at)}</td>
+          <td class="px-5 py-3 text-slate-500 whitespace-nowrap">${formatDateTime(c.created_at)}</td>
         </tr>`
         )
         .join("")
@@ -453,7 +508,15 @@ async function renderDashboardCharts() {
 // Kontak diidentifikasi lewat user_id (users.id) — mendukung pengguna
 // Telegram maupun WhatsApp (kolom channel/platform_id).
 // =====================================================================
-const chatsState = { agentId: null, activeId: null, users: [], isManualMode: false, channelFilter: "all" };
+const chatsState = {
+  agentId: null,
+  activeId: null,
+  users: [],
+  meta: null, // meta paginasi daftar kontak {page, per_page, total, total_pages}
+  isManualMode: false,
+  channelFilter: "all", // disaring di sisi server (query ?channel=)
+  page: 1, // halaman kontak aktif (10 kontak/halaman)
+};
 
 // Tombol filter channel pane kiri chat: Semua (default, abu gelap netral) /
 // WhatsApp (hijau) / Telegram (biru). Nonaktif = abu redup.
@@ -475,11 +538,14 @@ function applyChannelFilterUI() {
   }
 }
 
-/** Klik filter: pilih channel tsb ("all" = universal inbox, tanpa .filter()). */
+/** Klik filter: saring lewat server (?channel=) lalu ambil ulang halaman 1.
+ *  "all" = universal inbox (tanpa parameter channel). */
 function setChannelFilter(channel) {
+  if (chatsState.channelFilter === channel) return; // tidak ada perubahan
   chatsState.channelFilter = channel;
+  chatsState.page = 1;
   applyChannelFilterUI();
-  renderChatUserList();
+  renderChatUserListPane().catch((e) => showToast(e.message, "error"));
 }
 
 /** Jam:menit untuk gelembung pesan. */
@@ -511,6 +577,7 @@ function showChatAgentPicker() {
 function selectChatAgent(agentId) {
   chatsState.agentId = agentId;
   chatsState.activeId = null;
+  chatsState.page = 1; // agent baru -> mulai dari halaman kontak pertama
 
   // Kosongkan sisa UI percakapan agent sebelumnya (spec: back = clear UI)
   document.getElementById("chat-header-name").textContent = "—";
@@ -594,13 +661,23 @@ function paintChatPanes() {
   bubbles.classList.toggle("hidden", !hasUser);
 }
 
-/** Ambil daftar kontak agent terpilih lalu render pane kirinya. */
+/** Ambil daftar kontak agent terpilih (terpaginasi 10/halaman + filter
+ *  channel di sisi server) lalu render pane kirinya. */
 async function renderChatUserListPane() {
   const listEl = document.getElementById("chat-user-list");
   setLoading(listEl);
 
-  const res = await Api.get(`/chats/users/${encodeURIComponent(chatsState.agentId)}`);
+  const params = { page: chatsState.page, per_page: 10 };
+  if (chatsState.channelFilter !== "all") {
+    params.channel = chatsState.channelFilter;
+  }
+  const res = await Api.get(
+    `/chats/users/${encodeURIComponent(chatsState.agentId)}`,
+    params
+  );
   chatsState.users = res.data;
+  chatsState.meta = res.meta || null;
+  if (res.meta) chatsState.page = res.meta.page;
 
   // Pertahankan seleksi bila pengguna masih ada di daftar
   if (chatsState.activeId && !chatsState.users.some((u) => u.user_id === chatsState.activeId)) {
@@ -613,14 +690,11 @@ async function renderChatUserListPane() {
 }
 
 /** Render pane kiri: kontak diurutkan dari pesan terbaru.
- *  Daftar disaring dulu berdasarkan chatsState.channelFilter
- *  ("all" = universal inbox, atau "whatsapp"/"telegram" saja). */
+ *  Penyaringan channel & halaman sudah dilakukan server —
+ *  chatsState.users berisi persis kontak halaman aktif. */
 function renderChatUserList() {
   const listEl = document.getElementById("chat-user-list");
-  const visibleUsers =
-    chatsState.channelFilter === "all"
-      ? chatsState.users
-      : chatsState.users.filter((u) => u.channel === chatsState.channelFilter);
+  const visibleUsers = chatsState.users;
   const emptyText =
     chatsState.channelFilter === "all"
       ? "Belum ada pengguna yang chat."
@@ -665,6 +739,17 @@ function renderChatUserList() {
   listEl.querySelectorAll("button[data-user-id]").forEach((btn) => {
     btn.addEventListener("click", () => selectChatUser(Number(btn.dataset.userId)));
   });
+
+  // Footer paginasi pane kiri (varian ringkas: ‹ 2/5 ›)
+  renderPagination(
+    document.getElementById("chat-list-pagination"),
+    chatsState.meta,
+    (p) => {
+      chatsState.page = p;
+      renderChatUserListPane().catch((e) => showToast(e.message, "error"));
+    },
+    { compact: true }
+  );
 }
 
 /** Badge lingkaran bernomor "belum dibaca" — hanya tampil bila count > 0. */
@@ -855,8 +940,10 @@ function handleIncomingMessageUi(data) {
       }
     }
   } else {
-    // Kartu belum ada (kontak baru) — ambil ulang daftar dari server;
-    // badge-nya dirender otomatis dari unread_count hasil query DB.
+    // Kartu belum ada di halaman aktif (kontak baru, atau pesan masuk
+    // membuat kontak melompat ke halaman 1) — kembali ke halaman pertama
+    // dan ambil ulang; badge-nya dirender otomatis dari unread_count DB.
+    chatsState.page = 1;
     renderChatUserListPane().catch(() => {});
     return;
   }
@@ -1239,6 +1326,7 @@ async function renderKnowledgeBase() {
   document.getElementById("kb-upload-loading").classList.add("hidden");
   document.getElementById("kb-upload-loading").classList.remove("flex");
 
+  kbState.page = 1; // masuk halaman Knowledge Base -> mulai dari halaman pertama
   await Promise.all([fetchDocuments(), populateKbAgentSelect()]);
 }
 
@@ -1263,14 +1351,23 @@ async function populateKbAgentSelect() {
   }
 }
 
-/** Ambil daftar dokumen dari GET /api/knowledge-base lalu render tabel. */
-async function fetchDocuments() {
+/** Ambil daftar dokumen dari GET /api/knowledge-base lalu render tabel.
+ *  Terpaginasi 10 dokumen/halaman (kbState.page). */
+const kbState = { page: 1 };
+
+async function fetchDocuments(page = kbState.page) {
   const tbody = document.getElementById("kb-tbody");
   setLoading(tbody);
 
-  const res = await Api.get("/knowledge-base");
+  const res = await Api.get("/knowledge-base", { page, per_page: 10 });
+  kbState.page = res.meta ? res.meta.page : 1;
   const documents = res.data;
   const isSuper = App.user && App.user.role === "superadmin";
+
+  // Dokumen terakhir halaman terakhir baru dihapus -> mundur satu halaman
+  if (!documents.length && res.meta && res.meta.page > 1) {
+    return fetchDocuments(res.meta.total_pages);
+  }
 
   tbody.innerHTML = documents.length
     ? documents
@@ -1314,6 +1411,12 @@ async function fetchDocuments() {
     const doc = documents.find((d) => d.id === parseInt(btn.dataset.id, 10));
     btn.addEventListener("click", () => deleteDocument(doc));
   });
+
+  renderPagination(
+    document.getElementById("kb-pagination"),
+    res.meta,
+    fetchDocuments
+  );
 }
 
 /** Konfirmasi lalu hapus dokumen (chunk & file fisik ikut dihapus backend). */
@@ -1915,17 +2018,22 @@ function deleteAgentWahaSession(agentId, sessionName) {
 // dari tabel ai_usage_logs, satu baris per balasan AI webhook).
 // =====================================================================
 async function renderAiUsage() {
+  aiUsageState.page = 1; // masuk halaman AI Usage -> mulai dari halaman pertama
   await fetchAiUsage();
 }
 
-/** Ambil data pemakaian AI lalu render 3 kartu ringkasan + tabel log. */
-async function fetchAiUsage() {
+/** Ambil data pemakaian AI lalu render 3 kartu ringkasan + tabel log
+ *  (terpaginasi 10 baris/halaman). */
+const aiUsageState = { page: 1 };
+
+async function fetchAiUsage(page = aiUsageState.page) {
   const statsEl = document.getElementById("ai-usage-stats");
   const tbody = document.getElementById("ai-usage-tbody");
   setLoading(statsEl);
   setLoading(tbody);
 
-  const res = await Api.get("/ai-usage");
+  const res = await Api.get("/ai-usage", { page, per_page: 10 });
+  aiUsageState.page = res.meta ? res.meta.page : 1;
   const { summary, logs } = res.data;
 
   // Kartu ringkasan — gaya Enblox: kartu putih rounded-3xl berbayang
@@ -1984,17 +2092,32 @@ async function fetchAiUsage() {
         )
         .join("")
     : emptyRow(7, "Belum ada pemakaian AI yang tercatat.");
+
+  renderPagination(
+    document.getElementById("ai-usage-pagination"),
+    res.meta,
+    fetchAiUsage
+  );
 }
 
 // =====================================================================
-// VIEW: ADMIN MANAGEMENT (superadmin)
+// VIEW: ADMIN MANAGEMENT (superadmin) — daftar admin, 10 baris/halaman
 // =====================================================================
-async function renderAdmins() {
+const adminsState = { page: 1 };
+
+async function renderAdmins(page = adminsState.page) {
   const tbody = document.getElementById("admins-tbody");
   setLoading(tbody);
 
-  const res = await Api.get("/admins");
-  const admins = res.data;
+  const res = await Api.get("/admins", { page, per_page: 10 });
+  adminsState.page = res.meta ? res.meta.page : 1;
+  let admins = res.data;
+
+  // Baris terakhir halaman terakhir baru saja dihapus -> mundur satu halaman
+  // agar admin tidak melihat tabel kosong tanpa sebab.
+  if (!admins.length && res.meta && res.meta.page > 1) {
+    return renderAdmins(res.meta.total_pages);
+  }
 
   // Sel "Akses Agent": superadmin -> "Semua Agent" (implisit);
   // admin -> nama agent yang ditugaskan (pivot), atau "—" bila belum ada.
@@ -2023,7 +2146,7 @@ async function renderAdmins() {
         <td class="px-5 py-3">${statusBadge(a.role)}</td>
         <td class="px-5 py-3">${agentAccessCell(a)}</td>
         <td class="px-5 py-3">${statusBadge(a.is_active ? "active" : "inactive")}</td>
-        <td class="px-5 py-3 text-slate-500 text-xs">${formatDateTime(a.created_at)}</td>
+        <td class="px-5 py-3 text-slate-500 text-xs whitespace-nowrap">${formatDateTime(a.created_at)}</td>
         <td class="px-5 py-3 text-right whitespace-nowrap">
           <button data-action="edit" data-id="${a.id}" class="text-gray-900 hover:opacity-60 font-medium mr-3">Edit</button>
           <button data-action="delete" data-id="${a.id}" class="text-red-600 hover:text-red-800 font-medium">Hapus</button>
@@ -2041,6 +2164,12 @@ async function renderAdmins() {
       btn.addEventListener("click", () => deleteAdmin(admin));
     }
   });
+
+  renderPagination(
+    document.getElementById("admins-pagination"),
+    res.meta,
+    renderAdmins
+  );
 }
 
 /** Isi dropdown "Akses Agent" dari GET /api/agents (best-effort). */
@@ -2159,15 +2288,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Logout
   document.getElementById("logout-btn").addEventListener("click", handleLogout);
-
-  // Sidebar mobile
-  document.getElementById("sidebar-toggle").addEventListener("click", () => {
-    const sidebar = document.getElementById("sidebar");
-    const overlay = document.getElementById("sidebar-overlay");
-    sidebar.classList.toggle("-translate-x-full");
-    overlay.classList.toggle("hidden");
-  });
-  document.getElementById("sidebar-overlay").addEventListener("click", closeSidebar);
 
   // Tutup modal lewat tombol/elemen bertanda data-close-modal
   document.querySelectorAll("[data-close-modal]").forEach((el) => {

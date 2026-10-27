@@ -129,8 +129,7 @@ async function navigate() {
   const active = route ? name : "dashboard";
   showView(Routes[active].view);
   document.getElementById("page-title").textContent = Routes[active].title;
-  setActiveNav(active);
-  closeSidebar(); // tutup sidebar di layar mobile setelah berpindah halaman
+  setActiveNav(active); // menandai menu aktif di sidebar desktop & bottom nav mobile
 
   try {
     await Routes[active].render();

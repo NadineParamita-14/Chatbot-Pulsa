@@ -104,10 +104,17 @@ tbody tr {
 }
 
 /* ---------------------------------------------------------------------
- * SIDEBAR (desktop selalu tampil; mobile digeser via class Tailwind)
+ * BOTTOM NAV (mobile): pita navigasi fixed di bawah layar.
+ * Superadmin punya 7 menu -> pita bisa digeser horizontal; scrollbar
+ * disembunyikan agar tampak seperti aplikasi native.
  * -------------------------------------------------------------------- */
-#sidebar {
-  transition: transform 0.2s ease-in-out;
+#bottom-nav {
+  scrollbar-width: none;           /* Firefox */
+  -ms-overflow-style: none;        /* IE/Edge lama */
+}
+
+#bottom-nav > div::-webkit-scrollbar {
+  display: none;                   /* Chrome/Safari */
 }
 
 /* ---------------------------------------------------------------------
@@ -117,7 +124,7 @@ tbody tr {
   .modal-overlay,
   .modal-card,
   #toast-container > div,
-  #sidebar,
+  .nav-link,
   tbody tr {
     animation: none !important;
     transition: none !important;

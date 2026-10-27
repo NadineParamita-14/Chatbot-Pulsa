@@ -1943,3 +1943,53 @@ Please update the backend route that serves the Chat History page (e.g., `/chats
 1. If `current_user.role == 'superadmin'`, fetch and pass ALL agents to the template (current behavior).
 2. If `current_user.role == 'admin'`, query the `admin_agent_access` pivot table to get their assigned `agent_id`. Then, fetch and pass ONLY that specific agent to the template.
 3. Ensure the Jinja2 template dynamically renders only the filtered agent(s) passed from the backend, so the normal admin only sees exactly one card to click on for monitoring chats.
+
+# Context
+We are optimizing the Flask Admin Panel for mobile devices to feel like a native app. We need to implement pagination (max 10 rows), a 3-day persistent login session, and replace the mobile hamburger menu with a Bottom Navigation Bar.
+
+# Task
+Please implement the following updates step-by-step with high accuracy.
+
+## Step 1: Pagination (Max 10 rows per page)
+1. In your backend routes (`app.py` or controllers), update the SQLAlchemy queries for all data tables (e.g., Daftar Admin, Riwayat Chat, Knowledge Base) to use pagination: `.paginate(page=page, per_page=10, error_out=False)`.
+2. Extract the `page` parameter from the request args (`request.args.get('page', 1, type=int)`).
+3. Update the corresponding Jinja2 templates. Below the tables, add pagination UI controls (Previous, Page Numbers using `.iter_pages()`, and Next). Ensure any existing query parameters (like search terms) are maintained in the pagination links.
+
+## Step 2: 3-Day Persistent Login Session
+1. In `app.py`, ensure you import: `from datetime import timedelta`.
+2. Add the following to your app configuration: `app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=3)`.
+3. In your login route, immediately after successfully verifying credentials and logging the user in, explicitly set `session.permanent = True`. This will ensure the session cache lasts for 3 days of inactivity before forcing a re-login.
+
+## Step 3: Mobile Bottom Navigation Bar (Native App UX)
+1. **Remove Hamburger Menu:** In the base layout (`base.html`), remove or hide the mobile hamburger toggle button.
+2. **Create Bottom Nav Structure:** Add a new `<nav>` element placed at the bottom of the `<body>`. 
+3. **Menu Parity & RBAC:** The items in this Bottom Nav MUST be exactly the same as the desktop sidebar (Dashboard, Riwayat Chat, WhatsApp Session, AI Usage, Knowledge Base, Agent Config, Manajemen Admin). You MUST wrap the restricted items with the exact same Jinja2 RBAC conditions (`{% if current_user.role == 'superadmin' %}`) used in the sidebar.
+4. **Icons & Text:** Use clear, compact icons with small text underneath for each menu item. 
+5. **CSS Media Queries & Styling:**
+   - On Desktop (`min-width: 768px`): `display: block` for the left sidebar, `display: none` for the bottom nav.
+   - On Mobile (`max-width: 767px`): `display: none` for the left sidebar, `display: flex` for the bottom nav. Set the bottom nav to `position: fixed; bottom: 0; width: 100%; z-index: 50; background-color: white; border-top: 1px solid #ddd;`.
+6. **Horizontal Scroll for Superadmin:** Because the Superadmin sees many items, apply `overflow-x-auto; white-space: nowrap;` to the bottom nav so it can be swiped horizontally on mobile without breaking the layout.
+7. **Content Padding:** Add `padding-bottom` (around 80px) to the main content container specifically on mobile, so the bottom nav does not overlap the last rows of the data tables.
+
+Please execute these changes and ensure the UI looks clean on mobile devices.
+
+# Context
+We need to fix the responsive layout for the tables on the mobile view (especially the "Aktivitas Chat Terbaru" and other data tables) and ensure the pagination UI works seamlessly on both Desktop and Mobile. 
+
+# Task
+Please implement the following CSS/UI fixes:
+
+## Step 1: Responsive Table (Horizontal Scroll on Mobile)
+1. In the Jinja2 templates (e.g., `dashboard.html`, `chats.html`, `admin_management.html`), wrap every `<table>` element inside a wrapper div with horizontal overflow. 
+2. If using Tailwind CSS, use `<div class="overflow-x-auto w-full">`. If using Bootstrap or custom CSS, use `overflow-x: auto; max-width: 100%;`.
+3. This ensures that on mobile screens, the table does not shrink and squish the content; instead, the user can swipe horizontally to see the remaining columns.
+
+## Step 2: Fix Date Column Wrapping ("WAKTU")
+1. Locate the `<th>` and `<td>` elements for the Date/Time columns (e.g., "WAKTU").
+2. Add a CSS class to prevent the text from wrapping onto multiple lines. 
+3. If using Tailwind, add the class `whitespace-nowrap` to the `<td>` containing the date. If using custom CSS, add `style="white-space: nowrap;"`. This will force "19 Okt 2026, 14.12" to display horizontally on a single line.
+
+## Step 3: Pagination UI for Desktop & Mobile
+1. Ensure the pagination controls (added in the previous step) are responsive.
+2. Place the pagination controls outside the `overflow-x-auto` table wrapper so they remain fixed on the screen while the table scrolls.
+3. Use Flexbox (`d-flex justify-content-center` or `flex justify-center flex-wrap gap-2`) for the pagination buttons so they wrap neatly on small mobile screens without breaking the layout.
