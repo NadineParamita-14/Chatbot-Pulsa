@@ -118,12 +118,26 @@ tbody tr {
 }
 
 /* ---------------------------------------------------------------------
+ * MASKOT CHATBOT: robot 🤖 yang melayang pelan naik-turun di kanan
+ * bawah layar — aksen dekoratif agar panel terasa "hidup".
+ * -------------------------------------------------------------------- */
+@keyframes mascotFloat {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-10px); }
+}
+
+#floating-mascot {
+  animation: mascotFloat 3s ease-in-out infinite;
+}
+
+/* ---------------------------------------------------------------------
  * AKSESIBILITAS: hargai preferensi pengguna yang mematikan animasi
  * -------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   .modal-overlay,
   .modal-card,
   #toast-container > div,
+  #floating-mascot,
   .nav-link,
   tbody tr {
     animation: none !important;

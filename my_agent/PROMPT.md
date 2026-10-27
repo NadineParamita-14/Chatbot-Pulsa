@@ -2041,3 +2041,30 @@ Please fix the text wrapping issue in the `knowledge_base.html` table.
 3. Add a minimum width to the column to prevent it from squishing. If using Tailwind, add `min-w-[200px]` (or similar) to the `<th>` and `<td>`.
 4. Add the `whitespace-nowrap` class (or `white-space: nowrap;` in CSS) to the `<td>` containing the filename so that long filenames (like "Knowledge_Base_CS_PT_WAKI.pdf") stay on a single horizontal line.
 5. Because the table is already wrapped in `overflow-x-auto` (from our previous update), the user will simply be able to swipe horizontally to read the full filename without breaking the vertical layout of the rows.
+
+# Context
+We want to completely revamp the UI theme of the Flask Admin Panel. The current design uses a pink/magenta mesh gradient background which feels a bit too playful. We want to switch to a corporate, modern theme inspired by "Telkomsel" (Bold Red, White, Dark Gray). Additionally, the user feels the UI is too "empty/quiet", so we need to inject some lively "Chatbot/AI" visual elements.
+
+# Task
+Please implement the following UI/UX changes across the Jinja2 templates (using Tailwind CSS or custom CSS).
+
+## Step 1: Telkomsel Color Palette & Background
+1. In the `base.html` or main layout, REMOVE the decorative background div that contains the "mesh gradient blur (magenta/pink/oranye/ungu)".
+2. Set the main `<body>` background to a clean, light gray (e.g., `bg-gray-50` or `#F4F6F9`).
+3. Update primary buttons, active sidebar links, and important badges to use "Telkomsel Red" (e.g., Tailwind `bg-red-600` hover:`bg-red-700`, text-white).
+4. Update the sidebar to have a crisp white background with dark gray text, and a red accent border on the active menu item.
+
+## Step 2: Dashboard "Hero" Chatbot Banner
+1. At the top of `dashboard.html` (above the stat cards), add a new welcoming banner card.
+2. The banner should have a subtle red gradient or pattern background.
+3. Inside, add a greeting: "🤖 Halo [current_user.username], sistem Bot Customer Service berjalan lancar!"
+4. Make it look lively and modern to break the emptiness of the page.
+
+## Step 3: Floating Chatbot Mascot (Decorative)
+1. In `base.html`, add a fixed `<div id="floating-mascot">` at the bottom-right corner of the screen (above the bottom nav on mobile).
+2. Inside it, place an SVG of a cute robot face or a high-quality 🤖 emoji.
+3. Add a CSS keyframe animation (`animate-bounce` or a custom slow floating animation `translate-y-[-10px]`) so the robot slowly hovers up and down. This will make the app feel "alive".
+
+## Step 4: Chatbot-Themed Empty States
+1. Locate empty states in the app (e.g., when "Riwayat Chat" is empty, or "WhatsApp Session" has no assigned agent).
+2. Replace the generic "Tidak ada data" text with a chatbot-themed message and an icon. For example: "💤 Bot sedang istirahat. Belum ada aktivitas di sini." or "🤖 Bot siap menerima tugas."

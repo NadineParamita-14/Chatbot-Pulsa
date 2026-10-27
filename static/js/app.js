@@ -64,8 +64,8 @@ function statusBadge(status) {
     unpaid: "bg-amber-100 text-amber-800",
     failed: "bg-rose-100 text-rose-800",
     inactive: "bg-slate-200 text-slate-700",
-    superadmin: "bg-purple-100 text-purple-800",
-    admin: "bg-blue-100 text-blue-800",
+    superadmin: "bg-red-100 text-red-700",
+    admin: "bg-gray-200 text-gray-800",
   };
   const cls = colorMap[status] || "bg-slate-100 text-slate-600";
   return `<span class="px-2.5 py-0.5 inline-flex text-xs font-medium rounded-full ${cls}">${esc(status || "-")}</span>`;
@@ -83,7 +83,7 @@ function setLoading(el) {
 }
 
 /** Baris tabel saat tidak ada data. */
-function emptyRow(colspan, text = "Tidak ada data.") {
+function emptyRow(colspan, text = "💤 Belum ada data untuk ditampilkan.") {
   return `<tr><td colspan="${colspan}" class="px-5 py-10 text-center text-sm text-slate-400">${esc(text)}</td></tr>`;
 }
 
@@ -147,13 +147,11 @@ function openConfirm({ title, message, confirmText = "Ya, Lanjutkan", danger = t
 
   const okBtn = document.getElementById("confirm-ok");
   okBtn.textContent = confirmText;
-  // Merah untuk aksi berisiko (hapus), hitam pill untuk aksi proses (verifikasi)
-  okBtn.className = `px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full text-white transition-all ${
-    danger ? "bg-red-600 hover:bg-red-700" : "bg-gray-900 hover:bg-gray-700"
-  }`;
-  document.getElementById("confirm-icon").className = `w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
-    danger ? "bg-red-100 text-red-600" : "bg-gray-100 text-gray-900"
-  }`;
+  // Tema Telkomsel: semua aksi persetujuan memakai pill merah
+  okBtn.className =
+    "px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full text-white transition-all bg-red-600 hover:bg-red-700";
+  document.getElementById("confirm-icon").className =
+    "w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 bg-red-100 text-red-600";
 
   confirmAction = onConfirm;
   openModal("modal-confirm");
@@ -370,6 +368,10 @@ function applyDashboardFilters() {
 
 async function renderDashboard() {
   paintTopbarUser();
+  // Hero banner: sapa username admin yang sedang login
+  const heroName = document.getElementById("hero-username");
+  if (heroName && App.user) heroName.textContent = App.user.username;
+
   const statsEl = document.getElementById("dashboard-stats");
   const recentEl = document.getElementById("dashboard-recent");
   setLoading(statsEl);
@@ -390,40 +392,40 @@ async function renderDashboard() {
   const isSuper = App.user && App.user.role === "superadmin";
   const cards = [
     {
-      label: "Total Pelanggan", value: s.total_customers, color: "bg-orange-400",
+      label: "Total Pelanggan", value: s.total_customers, color: "bg-red-600",
       icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"/>`,
     },
     {
-      label: "Chat Hari Ini", value: s.chats_today, color: "bg-purple-500",
+      label: "Chat Hari Ini", value: s.chats_today, color: "bg-red-400",
       icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155"/>`,
     },
     {
-      label: "Total Chat", value: s.total_chats, color: "bg-blue-500",
+      label: "Total Chat", value: s.total_chats, color: "bg-gray-800",
       icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4-.8l-3.5 1.5 1.2-3.2C4.2 15.9 3 14.1 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>`,
     },
     {
-      label: "Balasan AI Hari Ini", value: s.ai_replies_today, color: "bg-teal-500",
+      label: "Balasan AI Hari Ini", value: s.ai_replies_today, color: "bg-rose-500",
       icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9.5 16.75c-.283.66-.68 1.256-1.178 1.77a5.517 5.517 0 01-1.82 1.187 5.5 5.5 0 01-4.29.093 5.486 5.486 0 01-1.817-1.13 5.5 5.5 0 01-1.664-4.238 5.5 5.5 0 011.596-3.988m8.916 8.457L12 21l3.5-3.5m-3.187 2.404l.844-.844m6.255-6.256l.844-.844M18.596 8.5l.844-.844M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-8.5 5.5a7.5 7.5 0 01-7.5-7.5 7.5 7.5 0 017.5-7.5 7.5 7.5 0 017.5 7.5 7.5 7.5 0 01-7.5 7.5z"/>`,
     },
     // Disisipkan kondisional: role admin tidak melihat biaya AI (RBAC)
     ...(isSuper
       ? [
           {
-            label: "Biaya AI Bulan Ini", value: formatIDR(s.ai_cost_month), color: "bg-indigo-500",
+            label: "Biaya AI Bulan Ini", value: formatIDR(s.ai_cost_month), color: "bg-red-700",
             icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/>`,
           },
         ]
       : []),
     {
-      label: "Unreg Berhasil", value: s.unreg_success, color: "bg-emerald-500",
+      label: "Unreg Berhasil", value: s.unreg_success, color: "bg-gray-500",
       icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>`,
     },
     {
-      label: "Pengguna Diblokir", value: s.blocked_users, color: "bg-red-500",
+      label: "Pengguna Diblokir", value: s.blocked_users, color: "bg-red-800",
       icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>`,
     },
     {
-      label: "Mode Manual Aktif", value: s.manual_mode_users, color: "bg-amber-500",
+      label: "Mode Manual Aktif", value: s.manual_mode_users, color: "bg-red-300",
       icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>`,
     },
   ];
@@ -483,10 +485,11 @@ async function renderDashboardCharts() {
 
   // 1. Bar chart RINCIAN HARIAN biaya AI — satu dataset per model
   // (bertumpuk per tanggal), tooltip menampilkan tanggal + model + biaya.
-  // Kartu + datanya hanya ada untuk superadmin.
+  // Kartu + datanya hanya ada untuk superadmin. Palet Telkomsel: merah
+  // dominan, ditopang abu gelap & abu muda.
   const modelsCtx = models ? document.getElementById("chart-models") : null;
   if (modelsCtx && models.datasets) {
-    const palette = ["#111827", "#f59e0b", "#8b5cf6", "#10b981", "#ec4899", "#3b82f6"];
+    const palette = ["#dc2626", "#111827", "#9ca3af", "#f87171", "#6b7280", "#fca5a5"];
     dashboardCharts.models = new Chart(modelsCtx, {
       type: "bar",
       data: {
@@ -541,8 +544,8 @@ async function renderDashboardCharts() {
         datasets: [
           {
             data: users.values,
-            borderColor: "#3b82f6",
-            backgroundColor: "rgba(59, 130, 246, 0.1)",
+            borderColor: "#dc2626",
+            backgroundColor: "rgba(220, 38, 38, 0.08)",
             fill: true,
             tension: 0.4,
             pointRadius: 0,
@@ -687,7 +690,7 @@ async function renderChatAgentCards() {
     // "belum ada penugasan" (admin) — selaras filter RBAC /api/agents.
     grid.innerHTML = `
       <div class="col-span-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-10 text-center">
-        <p class="text-slate-500">${esc(res.message || "Belum ada agent terdaftar.")}</p>
+        <p class="text-slate-500">🤖 ${esc(res.message || "Belum ada agent terdaftar.")}</p>
       </div>`;
     return;
   }
@@ -696,7 +699,7 @@ async function renderChatAgentCards() {
     .map(
       (a) => `
     <button type="button" data-chat-agent="${esc(a.agent_id)}"
-      class="text-left bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 hover:-translate-y-0.5 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-900">
+      class="text-left bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 hover:-translate-y-0.5 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-red-600">
       <div class="flex items-start justify-between gap-2 mb-3">
         <div class="text-3xl">${esc(AGENT_CARD_EMOJI[a.agent_id] || "🤖")}</div>
         ${agentActiveBadge(a.is_active)}
@@ -771,8 +774,8 @@ function renderChatUserList() {
   const visibleUsers = chatsState.users;
   const emptyText =
     chatsState.channelFilter === "all"
-      ? "Belum ada pengguna yang chat."
-      : `Belum ada pengguna ${CHANNEL_FILTER_UI[chatsState.channelFilter].label}.`;
+      ? "💤 Bot sedang istirahat. Belum ada pengguna yang chat dengan agent ini."
+      : `💤 Belum ada pengguna ${CHANNEL_FILTER_UI[chatsState.channelFilter].label} yang chat.`;
 
   listEl.innerHTML = visibleUsers.length
     ? visibleUsers
@@ -1169,7 +1172,7 @@ async function renderAgentCards() {
   if (!agents.length) {
     grid.innerHTML = `
       <div class="col-span-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-10 text-center">
-        <p class="text-slate-500">Belum ada agent terdaftar.</p>
+        <p class="text-slate-500">🤖 Bot siap menerima tugas — tapi belum ada agent terdaftar.</p>
         <p class="text-sm text-slate-400 mt-1">Gunakan tombol “+ Tambah Agent” untuk membuat agent pertama.</p>
       </div>`;
     return;
@@ -1179,7 +1182,7 @@ async function renderAgentCards() {
     .map(
       (a) => `
     <button type="button" data-agent-card="${esc(a.agent_id)}"
-      class="text-left bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 hover:-translate-y-0.5 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-900">
+      class="text-left bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 hover:-translate-y-0.5 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-red-600">
       <div class="flex items-start justify-between gap-2 mb-3">
         <div class="text-3xl">${esc(AGENT_CARD_EMOJI[a.agent_id] || "🤖")}</div>
         ${agentActiveBadge(a.is_active)}
@@ -1254,7 +1257,7 @@ async function renderAgentForm(agentId) {
   if (!cfg) {
     container.innerHTML = `
     <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-10 text-center">
-      <p class="text-slate-500">Konfigurasi untuk agent
+      <p class="text-slate-500">🤖 Konfigurasi untuk agent
         <span class="font-mono font-semibold">${esc(agentId)}</span> belum ada di database.</p>
       <p class="text-sm text-slate-400 mt-2">Tekan “⬅ Kembali” lalu tambahkan baris konfigurasinya terlebih dahulu.</p>
     </div>`;
@@ -1284,24 +1287,24 @@ async function renderAgentForm(agentId) {
           <div>
             <label class="block text-xs font-medium text-slate-500 mb-1">Nama Tampilan</label>
             <input name="name" value="${esc(cfg.name || "")}" maxlength="100" placeholder="cth: Bot Pulsa"
-              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-600" />
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-500 mb-1">Provider</label>
             <input name="provider" value="${esc(cfg.provider)}" required
-              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-600" />
           </div>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label class="block text-xs font-medium text-slate-500 mb-1">Temperature (0–2)</label>
             <input name="temperature" type="number" step="0.1" min="0" max="2" value="${esc(cfg.temperature)}" required
-              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-600" />
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-500 mb-1">Model</label>
             <select name="model_name"
-              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-600">
               ${modelOptions}
             </select>
           </div>
@@ -1311,7 +1314,7 @@ async function renderAgentForm(agentId) {
           <div class="relative">
             <input name="telegram_token" type="password" data-token-input value="${esc(cfg.telegram_token || "")}"
               autocomplete="off" spellcheck="false"
-              class="w-full rounded-xl border border-slate-300 px-3 py-2 pr-12 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900"
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 pr-12 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-red-600"
               placeholder="token bot Telegram (BotFather)" />
             <button type="button" data-token-toggle title="Tampilkan token"
               class="absolute right-2 top-1/2 -translate-y-1/2 px-1.5 py-1 text-base leading-none rounded hover:bg-slate-100">👁️</button>
@@ -1320,7 +1323,7 @@ async function renderAgentForm(agentId) {
         <div>
           <label class="block text-xs font-medium text-slate-500 mb-1">System Prompt</label>
           <textarea name="system_prompt" rows="12" required
-            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900">${esc(cfg.system_prompt)}</textarea>
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-red-600">${esc(cfg.system_prompt)}</textarea>
         </div>
         <!-- Toggle aktif: matikan untuk menonaktifkan agent ini sementara -->
         <label class="flex items-center gap-3 cursor-pointer select-none" title="Agent non-aktif tidak akan merespons pengguna">
@@ -1332,7 +1335,7 @@ async function renderAgentForm(agentId) {
           <span class="text-sm font-medium text-slate-700">Agent Aktif</span>
         </label>
         <div class="flex justify-end">
-          <button type="submit" class="inline-flex items-center gap-2 rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all">Simpan Perubahan <span aria-hidden="true">→</span></button>
+          <button type="submit" class="inline-flex items-center gap-2 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-sm shadow-red-600/30 px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all">Simpan Perubahan <span aria-hidden="true">→</span></button>
         </div>
       </form>
     </div>`;
@@ -1500,7 +1503,7 @@ async function fetchDocuments(page = kbState.page) {
       </tr>`
         )
         .join("")
-    : emptyRow(5, "Belum ada dokumen. Unggah PDF untuk menambah pengetahuan bot.");
+    : emptyRow(5, "🤖 Otak bot masih kosong — unggah PDF pertama untuk mengajarinya.");
 
   // Pasang listener hapus pada tiap tombol (tombol hanya dirender utk superadmin)
   tbody.querySelectorAll("button[data-action='delete']").forEach((btn) => {
@@ -1668,7 +1671,7 @@ async function fetchWahaSessions(silent = false) {
   if (!sessions.length) {
     grid.innerHTML = `
       <div class="col-span-full py-10 text-center">
-        <p class="text-sm font-medium text-slate-500">Tidak ada sesi WhatsApp.</p>
+        <p class="text-sm font-medium text-slate-500">🤖 Bot siap menerima tugas — belum ada sesi WhatsApp.</p>
         ${res.message && res.message !== "OK" ? `<p class="text-xs text-slate-400 mt-1">${esc(res.message)}</p>` : ""}
       </div>`;
     return;
@@ -1972,7 +1975,7 @@ async function renderAgentWahaDevices(agentId) {
                 )
                 .join("")
             : `<div class="px-5 py-8 text-center">
-                 <p class="text-sm text-slate-500">Belum ada perangkat WhatsApp tertaut.</p>
+                 <p class="text-sm text-slate-500">🤖 Belum ada perangkat WhatsApp tertaut.</p>
                  <p class="text-xs text-slate-400 mt-1">Klik “Generate QR WA” untuk menautkan nomor pertama.</p>
                </div>`
         }
@@ -2139,19 +2142,19 @@ async function fetchAiUsage(page = aiUsageState.page) {
       label: "Total Token Bulan Ini",
       value: (summary.total_tokens_this_month || 0).toLocaleString("id-ID"),
       sub: "jumlah token input + output",
-      color: "bg-fuchsia-500",
+      color: "bg-red-600",
     },
     {
       label: "Estimasi Biaya Bulan Ini",
       value: formatIDR(summary.total_cost_this_month),
       sub: "perkiraan biaya layanan LLM",
-      color: "bg-orange-400",
+      color: "bg-gray-800",
     },
     {
       label: "Pesan AI Hari Ini",
       value: (summary.total_conversations_today || 0).toLocaleString("id-ID"),
       sub: "balasan AI yang dibuat hari ini",
-      color: "bg-purple-600",
+      color: "bg-rose-400",
     },
   ];
 
@@ -2187,7 +2190,7 @@ async function fetchAiUsage(page = aiUsageState.page) {
         </tr>`
         )
         .join("")
-    : emptyRow(7, "Belum ada pemakaian AI yang tercatat.");
+    : emptyRow(7, "💤 Bot belum melakukan percakapan — pemakaian AI akan tercatat di sini.");
 
   renderPagination(
     document.getElementById("ai-usage-pagination"),
@@ -2219,7 +2222,7 @@ async function renderAdmins(page = adminsState.page) {
   // admin -> nama agent yang ditugaskan (pivot), atau "—" bila belum ada.
   const agentAccessCell = (a) => {
     if (a.role === "superadmin") {
-      return `<span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">Semua Agent</span>`;
+      return `<span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Semua Agent</span>`;
     }
     if (a.agent_access && a.agent_access.length) {
       return a.agent_access
@@ -2250,7 +2253,7 @@ async function renderAdmins(page = adminsState.page) {
       </tr>`
         )
         .join("")
-    : emptyRow(8);
+    : emptyRow(8, "🤖 Belum ada admin terdaftar. Tambahkan admin pertama lewat tombol di atas.");
 
   tbody.querySelectorAll("button[data-action]").forEach((btn) => {
     const admin = admins.find((a) => a.id === parseInt(btn.dataset.id, 10));

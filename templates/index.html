@@ -30,27 +30,16 @@
   <!-- Styling pendukung (animasi modal, scrollbar, dsb) -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
-<body class="bg-white text-gray-900 font-sans">
-
-  <!-- ==========================================================
-       AKSEN LATAR: mesh gradient blur (magenta / pink / oranye / ungu)
-       Fixed di belakang seluruh konten (z negatif), non-interaktif.
-  =========================================================== -->
-  <div aria-hidden="true" class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-    <div class="absolute -top-24 -left-24 w-96 h-96 bg-fuchsia-500 rounded-full blur-3xl opacity-30"></div>
-    <div class="absolute top-1/3 -right-32 w-[28rem] h-[28rem] bg-orange-400 rounded-full blur-3xl opacity-25"></div>
-    <div class="absolute -bottom-32 left-1/4 w-96 h-96 bg-purple-600 rounded-full blur-3xl opacity-25"></div>
-    <div class="absolute top-10 right-1/3 w-72 h-72 bg-pink-500 rounded-full blur-3xl opacity-20"></div>
-  </div>
+<body class="bg-gray-50 text-gray-900 font-sans">
 
   <!-- ==========================================================
        VIEW: LOGIN
   =========================================================== -->
   <section id="view-login" class="view hidden min-h-screen flex items-center justify-center px-4">
     <div class="w-full max-w-md">
-      <div class="bg-white/80 backdrop-blur-md rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8">
+      <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-gray-100 p-8">
         <div class="text-center mb-8">
-          <div class="mx-auto w-14 h-14 rounded-full bg-gray-900 flex items-center justify-center mb-4">
+          <div class="mx-auto w-14 h-14 rounded-full bg-red-600 flex items-center justify-center mb-4 shadow-lg shadow-red-600/30">
             <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round"
                 d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
@@ -66,17 +55,17 @@
           <div>
             <label for="login-username" class="block text-sm font-medium text-slate-700 mb-1">Username</label>
             <input id="login-username" type="text" autocomplete="username" required
-              class="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-gray-900"
+              class="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-red-600"
               placeholder="masukkan username" />
           </div>
           <div>
             <label for="login-password" class="block text-sm font-medium text-slate-700 mb-1">Password</label>
             <input id="login-password" type="password" autocomplete="current-password" required
-              class="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-gray-900"
+              class="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-red-600"
               placeholder="••••••••" />
           </div>
           <button id="login-submit" type="submit"
-            class="w-full inline-flex items-center justify-center gap-2 rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all disabled:opacity-60 disabled:cursor-not-allowed">
+            class="w-full inline-flex items-center justify-center gap-2 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-sm shadow-red-600/30 px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all disabled:opacity-60 disabled:cursor-not-allowed">
             Masuk <span aria-hidden="true">→</span>
           </button>
         </form>
@@ -90,12 +79,12 @@
   =========================================================== -->
   <div id="app-shell" class="hidden min-h-screen">
 
-    <!-- ===== SIDEBAR: kaca putih (glassmorphism) di atas mesh gradient.
-         Hanya desktop (md+) — navigasi mobile memakai bottom nav di bawah. ===== -->
+    <!-- ===== SIDEBAR: putih bersih, teks abu gelap, aksen merah pada menu
+         aktif. Hanya desktop (md+) — navigasi mobile memakai bottom nav. ===== -->
     <aside id="sidebar"
-      class="hidden md:flex fixed inset-y-0 left-0 z-30 w-64 bg-white/70 backdrop-blur-md text-gray-900 flex-col">
+      class="hidden md:flex fixed inset-y-0 left-0 z-30 w-64 bg-white text-gray-700 border-r border-gray-100 flex-col">
       <div class="h-16 flex items-center gap-3 px-6 border-b border-gray-100">
-        <div class="w-8 h-8 rounded-full bg-gray-900 flex items-center justify-center">
+        <div class="w-8 h-8 rounded-full bg-red-600 flex items-center justify-center shadow-sm">
           <svg class="w-4 h-4 text-white" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
           </svg>
@@ -105,14 +94,14 @@
 
       <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         <a href="#dashboard" data-route="dashboard"
-           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-500 hover:text-black hover:bg-gray-100/70 transition-colors">
+           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-xl border-l-4 border-transparent text-sm font-medium text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors">
           <svg class="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
           </svg>
           Dashboard
         </a>
         <a href="#chats" data-route="chats"
-           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-500 hover:text-black hover:bg-gray-100/70 transition-colors">
+           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-xl border-l-4 border-transparent text-sm font-medium text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors">
           <svg class="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4-.8l-3.5 1.5 1.2-3.2C4.2 15.9 3 14.1 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
           </svg>
@@ -120,7 +109,7 @@
         </a>
 
         <a href="#waha" data-route="waha"
-           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-500 hover:text-black hover:bg-gray-100/70 transition-colors">
+           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-xl border-l-4 border-transparent text-sm font-medium text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors">
           <svg class="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/>
           </svg>
@@ -128,7 +117,7 @@
         </a>
 
         <a href="#ai-usage" data-route="ai-usage" data-superadmin-only
-           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-500 hover:text-black hover:bg-gray-100/70 transition-colors">
+           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-xl border-l-4 border-transparent text-sm font-medium text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors">
           <svg class="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
           </svg>
@@ -138,21 +127,21 @@
         <!-- Tiga link di bawah ini hanya tampil untuk superadmin (dikontrol app.js);
              #waha di atas terbuka untuk semua role (sesi disaring per agent) -->
         <a href="#knowledge-base" data-route="knowledge-base" data-superadmin-only
-           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-500 hover:text-black hover:bg-gray-100/70 transition-colors">
+           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-xl border-l-4 border-transparent text-sm font-medium text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors">
           <svg class="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
           </svg>
           Knowledge Base
         </a>
         <a href="#agent-config" data-route="agent-config" data-superadmin-only
-           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-500 hover:text-black hover:bg-gray-100/70 transition-colors">
+           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-xl border-l-4 border-transparent text-sm font-medium text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors">
           <svg class="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
           </svg>
           Agent Config
         </a>
         <a href="#admin-management" data-route="admin-management" data-superadmin-only
-           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium text-gray-500 hover:text-black hover:bg-gray-100/70 transition-colors">
+           class="nav-link group flex items-center gap-3 px-4 py-2.5 rounded-xl border-l-4 border-transparent text-sm font-medium text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors">
           <svg class="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
           </svg>
@@ -168,8 +157,8 @@
     <!-- ===== AREA KANAN: TOPBAR + MAIN ===== -->
     <div class="md:pl-64 flex flex-col min-h-screen">
 
-      <!-- TOPBAR: kaca putih menyatu dengan latar mesh gradient -->
-      <header class="h-16 bg-white/70 backdrop-blur-md border-b border-gray-100 flex items-center justify-between px-4 md:px-6 sticky top-0 z-10">
+      <!-- TOPBAR: putih bersih dengan garis bawah halus -->
+      <header class="h-16 bg-white border-b border-gray-100 flex items-center justify-between px-4 md:px-6 sticky top-0 z-10">
         <div class="flex items-center gap-3">
           <h2 id="page-title" class="text-lg font-extrabold tracking-tighter text-black">Dashboard</h2>
         </div>
@@ -179,7 +168,7 @@
             <p id="topbar-user-name" class="text-sm font-semibold text-gray-900">—</p>
             <p id="topbar-user-role" class="text-xs font-serif italic text-gray-500">—</p>
           </div>
-          <div class="w-9 h-9 rounded-full bg-gray-900 text-white flex items-center justify-center font-bold text-sm">
+          <div class="w-9 h-9 rounded-full bg-red-600 text-white flex items-center justify-center font-bold text-sm shadow-sm">
             <span id="topbar-avatar">A</span>
           </div>
           <button id="logout-btn" title="Keluar"
@@ -199,6 +188,28 @@
         <!-- VIEW: DASHBOARD -->
         <section id="view-dashboard" class="view hidden space-y-6">
 
+          <!-- HERO BANNER: sambutan hangat bergaya chatbot — memecah
+               kesan kosong di atas kartu statistik. Gradien merah Telkomsel
+               dengan gelembung chat dekoratif; username diisi app.js. -->
+          <div class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-red-600 via-red-500 to-rose-500 text-white p-6 md:p-8 shadow-lg shadow-red-600/20">
+            <!-- dekorasi: gelembung chat & titik-titik, non-interaktif -->
+            <div aria-hidden="true" class="absolute inset-0 pointer-events-none">
+              <div class="absolute -top-8 -right-6 w-40 h-40 rounded-full bg-white/10"></div>
+              <div class="absolute top-6 right-24 w-16 h-16 rounded-full bg-white/10"></div>
+              <div class="absolute -bottom-10 left-1/3 w-32 h-32 rounded-full bg-black/5"></div>
+              <span class="absolute top-4 right-6 text-5xl md:text-6xl opacity-90 select-none">🤖</span>
+              <span class="absolute bottom-3 right-28 md:right-32 text-2xl opacity-70 select-none">💬</span>
+            </div>
+            <div class="relative">
+              <p class="text-xl md:text-2xl font-extrabold tracking-tight leading-snug">
+                🤖 Halo <span id="hero-username">…</span>, sistem Bot Customer Service berjalan lancar!
+              </p>
+              <p class="text-sm text-white/80 mt-1.5 max-w-2xl">
+                Pantau percakapan pelanggan, pemakaian AI, dan status WhatsApp bot — semuanya dalam satu panel.
+              </p>
+            </div>
+          </div>
+
           <!-- FILTER GLOBAL: agent + rentang tanggal. "Terapkan" memicu
                renderDashboard() ulang; semua kartu statistik, chart, dan
                tabel aktivitas mengikuti filter ini. Role admin: dropdown
@@ -208,23 +219,23 @@
               <div>
                 <label for="dash-filter-agent" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Pilih Agent</label>
                 <select id="dash-filter-agent"
-                  class="w-full rounded-xl border-0 bg-slate-100 px-4 py-2.5 text-sm text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white outline-none transition-colors">
+                  class="w-full rounded-xl border-0 bg-slate-100 px-4 py-2.5 text-sm text-gray-900 focus:ring-2 focus:ring-red-600 focus:bg-white outline-none transition-colors">
                   <option value="">Semua Agent</option>
                 </select>
               </div>
               <div>
                 <label for="dash-filter-start" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Mulai Tanggal</label>
                 <input id="dash-filter-start" type="date"
-                  class="w-full rounded-xl border-0 bg-slate-100 px-4 py-2.5 text-sm text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white outline-none transition-colors" />
+                  class="w-full rounded-xl border-0 bg-slate-100 px-4 py-2.5 text-sm text-gray-900 focus:ring-2 focus:ring-red-600 focus:bg-white outline-none transition-colors" />
               </div>
               <div>
                 <label for="dash-filter-end" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Sampai Tanggal</label>
                 <input id="dash-filter-end" type="date"
-                  class="w-full rounded-xl border-0 bg-slate-100 px-4 py-2.5 text-sm text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white outline-none transition-colors" />
+                  class="w-full rounded-xl border-0 bg-slate-100 px-4 py-2.5 text-sm text-gray-900 focus:ring-2 focus:ring-red-600 focus:bg-white outline-none transition-colors" />
               </div>
               <div class="flex md:justify-end">
                 <button id="dash-filter-apply" type="button"
-                  class="w-full md:w-auto inline-flex items-center justify-center gap-2 rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all">
+                  class="w-full md:w-auto inline-flex items-center justify-center gap-2 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-sm shadow-red-600/30 px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all">
                   Terapkan <span aria-hidden="true">→</span>
                 </button>
               </div>
@@ -358,13 +369,11 @@
 
                 <!-- Area gelembung pesan (latar pola khas aplikasi chat) -->
                 <div id="chat-window" class="chat-bg flex-1 overflow-y-auto p-4 md:p-6">
-                  <!-- Empty state awal -->
+                  <!-- Empty state awal (bertema chatbot) -->
                   <div id="chat-empty-state" class="h-full flex flex-col items-center justify-center text-center text-slate-400">
-                    <svg class="w-14 h-14 mb-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155"/>
-                    </svg>
-                    <p class="text-sm font-medium">Pilih pengguna untuk melihat riwayat chat</p>
-                    <p class="text-xs mt-1">Daftar pengguna tersedia di panel sebelah kiri</p>
+                    <span class="text-6xl mb-3 select-none" aria-hidden="true">🤖</span>
+                    <p class="text-sm font-medium text-slate-500">Bot siap menampilkan percakapan.</p>
+                    <p class="text-xs mt-1">Pilih salah satu pengguna di panel sebelah kiri untuk mulai memantau chat 💬</p>
                   </div>
                   <!-- Gelembung pesan dirender oleh app.js (renderChatConversation) -->
                   <div id="chat-bubbles" class="hidden space-y-4"></div>
@@ -374,9 +383,9 @@
                 <div id="chat-input-area" class="border-t border-slate-200 bg-white p-3 flex items-center gap-2">
                   <input id="chat-input" type="text" disabled
                     placeholder="AI is currently handling this chat. Turn on Manual Mode to reply."
-                    class="flex-1 rounded-full border border-slate-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed" />
+                    class="flex-1 rounded-full border border-slate-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-600 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed" />
                   <button id="chat-send-btn" disabled title="Kirim"
-                    class="w-10 h-10 rounded-full bg-gray-900 hover:bg-gray-700 text-white flex items-center justify-center transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-gray-900 flex-shrink-0">
+                    class="w-10 h-10 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center shadow-sm shadow-red-600/30 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-red-600 disabled:shadow-none flex-shrink-0">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/>
                     </svg>
@@ -433,7 +442,7 @@
                 <div>
                   <label for="kb-agent-select" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Milik Agent</label>
                   <select id="kb-agent-select"
-                    class="w-full rounded-xl border-0 bg-slate-100 px-4 py-2.5 text-sm text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white outline-none transition-colors">
+                    class="w-full rounded-xl border-0 bg-slate-100 px-4 py-2.5 text-sm text-gray-900 focus:ring-2 focus:ring-red-600 focus:bg-white outline-none transition-colors">
                     <option value="">Bersama (semua agent)</option>
                   </select>
                 </div>
@@ -448,7 +457,7 @@
                   <input id="kb-file-input" type="file" accept=".pdf,application/pdf" class="sr-only" />
                 </label>
                 <button id="kb-upload-btn" type="submit"
-                  class="w-full inline-flex items-center justify-center gap-2 rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all disabled:opacity-60 disabled:cursor-not-allowed">
+                  class="w-full inline-flex items-center justify-center gap-2 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-sm shadow-red-600/30 px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all disabled:opacity-60 disabled:cursor-not-allowed">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V6m0 0l-4 4m4-4l4 4M4 20h16"/>
                   </svg>
@@ -477,7 +486,7 @@
                 <p class="text-sm font-serif italic text-gray-500">Klik kartu agent untuk membuka konfigurasinya.</p>
               </div>
               <button id="btn-add-agent" type="button"
-                class="flex items-center gap-2 rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all">
+                class="flex items-center gap-2 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-sm shadow-red-600/30 px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                 </svg>
@@ -511,7 +520,7 @@
                 <p class="text-xs font-serif italic text-gray-500 mt-0.5">Status koneksi WhatsApp bot — diperbarui otomatis tiap 20 detik.</p>
               </div>
               <button id="btn-refresh-waha"
-                class="flex items-center gap-2 rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all">
+                class="flex items-center gap-2 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-sm shadow-red-600/30 px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992V4.356m0 4.992l-3.181-3.183a8.25 8.25 0 00-13.803 3.7M3.985 14.652H8.977m-4.992 0v4.992m0-4.992l3.181 3.183a8.25 8.25 0 0013.803-3.7"/>
                 </svg>
@@ -568,7 +577,7 @@
             <div class="px-8 py-6 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
               <h3 class="font-extrabold tracking-tighter text-black">Daftar Admin</h3>
               <button id="btn-add-admin"
-                class="flex items-center gap-2 rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all">
+                class="flex items-center gap-2 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-sm shadow-red-600/30 px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                 </svg>
@@ -613,49 +622,58 @@
       class="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white/90 backdrop-blur-md border-t border-gray-100">
       <div class="flex items-stretch overflow-x-auto whitespace-nowrap">
         <a href="#dashboard" data-route="dashboard" title="Dashboard" aria-label="Dashboard"
-          class="nav-link flex items-center justify-center min-w-[3rem] flex-1 flex-shrink-0 px-3 py-3 text-gray-500 transition-colors">
+          class="nav-link flex items-center justify-center min-w-[3rem] flex-1 flex-shrink-0 px-3 py-3 rounded-xl text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
           </svg>
         </a>
         <a href="#chats" data-route="chats" title="Riwayat Chat" aria-label="Riwayat Chat"
-          class="nav-link flex items-center justify-center min-w-[3rem] flex-1 flex-shrink-0 px-3 py-3 text-gray-500 transition-colors">
+          class="nav-link flex items-center justify-center min-w-[3rem] flex-1 flex-shrink-0 px-3 py-3 rounded-xl text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4-.8l-3.5 1.5 1.2-3.2C4.2 15.9 3 14.1 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
           </svg>
         </a>
         <a href="#waha" data-route="waha" title="WhatsApp Session" aria-label="WhatsApp Session"
-          class="nav-link flex items-center justify-center min-w-[3rem] flex-1 flex-shrink-0 px-3 py-3 text-gray-500 transition-colors">
+          class="nav-link flex items-center justify-center min-w-[3rem] flex-1 flex-shrink-0 px-3 py-3 rounded-xl text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/>
           </svg>
         </a>
         <a href="#ai-usage" data-route="ai-usage" data-superadmin-only title="AI Usage" aria-label="AI Usage"
-          class="nav-link flex items-center justify-center min-w-[3rem] flex-1 flex-shrink-0 px-3 py-3 text-gray-500 transition-colors">
+          class="nav-link flex items-center justify-center min-w-[3rem] flex-1 flex-shrink-0 px-3 py-3 rounded-xl text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
           </svg>
         </a>
         <a href="#knowledge-base" data-route="knowledge-base" data-superadmin-only title="Knowledge Base" aria-label="Knowledge Base"
-          class="nav-link flex items-center justify-center min-w-[3rem] flex-1 flex-shrink-0 px-3 py-3 text-gray-500 transition-colors">
+          class="nav-link flex items-center justify-center min-w-[3rem] flex-1 flex-shrink-0 px-3 py-3 rounded-xl text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
           </svg>
         </a>
         <a href="#agent-config" data-route="agent-config" data-superadmin-only title="Agent Config" aria-label="Agent Config"
-          class="nav-link flex items-center justify-center min-w-[3rem] flex-1 flex-shrink-0 px-3 py-3 text-gray-500 transition-colors">
+          class="nav-link flex items-center justify-center min-w-[3rem] flex-1 flex-shrink-0 px-3 py-3 rounded-xl text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
           </svg>
         </a>
         <a href="#admin-management" data-route="admin-management" data-superadmin-only title="Manajemen Admin" aria-label="Manajemen Admin"
-          class="nav-link flex items-center justify-center min-w-[3rem] flex-1 flex-shrink-0 px-3 py-3 text-gray-500 transition-colors">
+          class="nav-link flex items-center justify-center min-w-[3rem] flex-1 flex-shrink-0 px-3 py-3 rounded-xl text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
           </svg>
         </a>
       </div>
     </nav>
+
+    <!-- ===== MASKOT CHATBOT (dekoratif) =====
+         Robot kecil yang melayang pelan di kanan bawah — memberi kesan
+         aplikasi "hidup". Mobile: di atas bottom nav; desktop: di pojok.
+         Non-interaktif & di bawah modal; animasi di style.css. -->
+    <div id="floating-mascot" aria-hidden="true"
+      class="pointer-events-none select-none fixed bottom-20 right-4 md:bottom-6 md:right-6 z-30 w-14 h-14 rounded-full bg-red-600 text-white flex items-center justify-center text-3xl shadow-lg shadow-red-600/40 ring-4 ring-white/70">
+      🤖
+    </div>
   </div>
 
   <!-- ==========================================================
@@ -671,12 +689,12 @@
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-1">Username <span class="text-red-500">*</span></label>
             <input id="admin-username" type="text" required maxlength="50"
-              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-600" />
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-1">Nama Lengkap <span class="text-red-500">*</span></label>
             <input id="admin-full-name" type="text" required maxlength="100"
-              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-600" />
           </div>
         </div>
         <div>
@@ -684,14 +702,14 @@
             Password <span id="admin-password-hint" class="text-xs text-slate-400"></span>
           </label>
           <input id="admin-password" type="password" minlength="6"
-            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-600"
             placeholder="minimal 6 karakter" />
         </div>
         <div class="grid grid-cols-2 gap-4 items-end">
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-1">Role</label>
             <select id="admin-role"
-              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-600">
               <option value="admin">Admin</option>
               <option value="superadmin">Superadmin</option>
             </select>
@@ -708,7 +726,7 @@
             Akses Agent <span class="text-red-500">*</span>
           </label>
           <select id="admin-agent"
-            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-600">
             <option value="">— Memuat daftar agent… —</option>
           </select>
           <p class="text-xs text-slate-400 mt-1">
@@ -719,7 +737,7 @@
           <button type="button" data-close-modal
             class="px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full border border-gray-300 text-gray-500 hover:bg-gray-100 transition-all">Batal</button>
           <button type="submit"
-            class="px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white transition-all">Simpan <span aria-hidden="true">→</span></button>
+            class="px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full bg-red-600 hover:bg-red-700 text-white shadow-sm shadow-red-600/30 transition-all">Simpan <span aria-hidden="true">→</span></button>
         </div>
       </form>
     </div>
@@ -737,20 +755,20 @@
           <label for="new-agent-id" class="block text-sm font-medium text-slate-700 mb-1">Agent ID <span class="text-red-500">*</span></label>
           <input id="new-agent-id" type="text" required maxlength="50" pattern="[a-z0-9_]+"
             title="Hanya huruf kecil, angka, dan underscore (tanpa spasi)"
-            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900"
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-red-600"
             placeholder="cth: pulsa_agent" />
           <p class="text-xs text-slate-400 mt-1">Huruf kecil, angka, dan underscore — tanpa spasi.</p>
         </div>
         <div>
           <label for="new-agent-name" class="block text-sm font-medium text-slate-700 mb-1">Nama Tampilan <span class="text-red-500">*</span></label>
           <input id="new-agent-name" type="text" required maxlength="100"
-            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-600"
             placeholder="cth: Bot Retensi" />
         </div>
         <div>
           <label for="new-agent-token" class="block text-sm font-medium text-slate-700 mb-1">Telegram Token</label>
           <input id="new-agent-token" type="password"
-            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900"
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-red-600"
             placeholder="kosongkan bila belum ada — bisa diisi nanti" />
           <p class="text-xs text-slate-400 mt-1">Opsional: token bot Telegram dari BotFather.</p>
         </div>
@@ -758,7 +776,7 @@
           <button type="button" data-close-modal
             class="px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full border border-gray-300 text-gray-500 hover:bg-gray-100 transition-all">Batal</button>
           <button type="submit"
-            class="px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full border border-gray-900 text-gray-900 bg-transparent hover:bg-gray-900 hover:text-white transition-all">Simpan <span aria-hidden="true">→</span></button>
+            class="px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold rounded-full bg-red-600 hover:bg-red-700 text-white shadow-sm shadow-red-600/30 transition-all">Simpan <span aria-hidden="true">→</span></button>
         </div>
       </form>
     </div>
@@ -821,8 +839,8 @@
     </div>
   </div>
 
-  <!-- Kontainer notifikasi toast (bottom-24 di mobile: di atas bottom nav) -->
-  <div id="toast-container" class="fixed bottom-24 md:bottom-5 right-5 z-50 space-y-2 w-80 max-w-[calc(100vw-2.5rem)]"></div>
+  <!-- Kontainer notifikasi toast — digeser dari maskot (kanan-24) & bottom nav -->
+  <div id="toast-container" class="fixed bottom-24 right-20 md:bottom-6 md:right-24 z-50 space-y-2 w-80 max-w-[calc(100vw-7rem)]"></div>
 
   <!-- Urutan pemuatan penting: api -> router -> app -->
   <script src="{{ url_for('static', filename='js/api.js') }}"></script>
