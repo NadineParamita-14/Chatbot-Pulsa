@@ -305,16 +305,78 @@ function paintTopbarUser() {
 }
 
 // =====================================================================
-// VIEW: DASHBOARD
+// VIEW: DASHBOARD — dengan filter global (agent + rentang tanggal)
+// Filter disimpan di dashboardState agar bertahan saat pindah halaman;
+// "Terapkan" memicu renderDashboard() ulang (kartu, chart, tabel).
 // =====================================================================
+const dashboardState = { agentId: "", startDate: "", endDate: "" };
+
+/** Query params filter utk /dashboard/stats & /dashboard/charts. */
+function dashboardFilterParams() {
+  const params = {};
+  if (dashboardState.agentId) params.agent_id = dashboardState.agentId;
+  if (dashboardState.startDate) params.start_date = dashboardState.startDate;
+  if (dashboardState.endDate) params.end_date = dashboardState.endDate;
+  return params;
+}
+
+/** Isi dropdown agent filter dashboard.
+ *  Superadmin: "Semua Agent" + seluruh agent (bebas memilih).
+ *  Admin: terkunci (disabled) ke agent penugasannya — backend juga
+ *  memaksa scoping yang sama, jadi UI hanya mencerminkan kebijakan itu. */
+async function populateDashboardAgentFilter() {
+  const select = document.getElementById("dash-filter-agent");
+  if (!select) return;
+  try {
+    const res = await Api.get("/agents");
+    const agents = res.data || [];
+    if (App.user && App.user.role === "superadmin") {
+      select.innerHTML =
+        `<option value="">Semua Agent</option>` +
+        agents
+          .map(
+            (a) => `<option value="${esc(a.agent_id)}">${esc(a.name || a.agent_id)}</option>`
+          )
+          .join("");
+      select.disabled = false;
+      select.value = dashboardState.agentId; // pertahankan pilihan tersimpan
+    } else {
+      // Daftar dari backend untuk admin memang hanya berisi agent penugasannya
+      const own = agents[0];
+      select.innerHTML = own
+        ? `<option value="${esc(own.agent_id)}">${esc(own.name || own.agent_id)}</option>`
+        : `<option value="">— tidak ada penugasan —</option>`;
+      select.disabled = true;
+      dashboardState.agentId = own ? own.agent_id : "";
+    }
+  } catch (e) {
+    /* biarkan opsi default — dashboard tetap tampil tanpa filter agent */
+  }
+}
+
+/** Baca input filter -> simpan ke state. Kembalikan pesan error / null. */
+function applyDashboardFilters() {
+  const agentId = document.getElementById("dash-filter-agent").value;
+  const start = document.getElementById("dash-filter-start").value;
+  const end = document.getElementById("dash-filter-end").value;
+  if (start && end && start > end) {
+    return "Tanggal mulai tidak boleh setelah tanggal akhir.";
+  }
+  dashboardState.agentId = agentId;
+  dashboardState.startDate = start;
+  dashboardState.endDate = end;
+  return null;
+}
+
 async function renderDashboard() {
   paintTopbarUser();
   const statsEl = document.getElementById("dashboard-stats");
   const recentEl = document.getElementById("dashboard-recent");
   setLoading(statsEl);
-  recentEl.innerHTML = emptyRow(5, "Memuat...");
+  recentEl.innerHTML = emptyRow(6, "Memuat...");
 
-  const res = await Api.get("/dashboard/stats");
+  await populateDashboardAgentFilter();
+  const res = await Api.get("/dashboard/stats", dashboardFilterParams());
   const s = res.data;
 
   // Chart paralel: kegagalan endpoint chart tidak boleh menggagalkan
@@ -410,7 +472,7 @@ const dashboardCharts = { models: null, users: null };
 async function renderDashboardCharts() {
   if (typeof Chart === "undefined") return; // CDN gagal — lewati diam-diam
 
-  const res = await Api.get("/dashboard/charts");
+  const res = await Api.get("/dashboard/charts", dashboardFilterParams());
   const { models, users } = res.data; // models = undefined untuk role admin (RBAC)
 
   // Tipografi chart mengikuti UI (Plus Jakarta Sans)
@@ -419,35 +481,47 @@ async function renderDashboardCharts() {
   if (dashboardCharts.models) dashboardCharts.models.destroy();
   if (dashboardCharts.users) dashboardCharts.users.destroy();
 
-  // 1. Bar chart biaya per model AI — hitam minimalis, sudut membulat
-  // (kartu + datanya hanya ada untuk superadmin)
+  // 1. Bar chart RINCIAN HARIAN biaya AI — satu dataset per model
+  // (bertumpuk per tanggal), tooltip menampilkan tanggal + model + biaya.
+  // Kartu + datanya hanya ada untuk superadmin.
   const modelsCtx = models ? document.getElementById("chart-models") : null;
-  if (modelsCtx) {
+  if (modelsCtx && models.datasets) {
+    const palette = ["#111827", "#f59e0b", "#8b5cf6", "#10b981", "#ec4899", "#3b82f6"];
     dashboardCharts.models = new Chart(modelsCtx, {
       type: "bar",
       data: {
         labels: models.labels,
-        datasets: [
-          {
-            data: models.values,
-            backgroundColor: "#111827",
-            borderRadius: 8,
-            maxBarThickness: 48,
-          },
-        ],
+        datasets: models.datasets.map((d, i) => ({
+          label: d.model,
+          data: d.values,
+          backgroundColor: palette[i % palette.length],
+          borderRadius: 4,
+          maxBarThickness: 28,
+          stack: "biaya",
+        })),
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
         plugins: {
-          legend: { display: false },
+          legend: {
+            // Legenda hanya mengganggu bila modelnya satu
+            display: models.datasets.length > 1,
+            position: "bottom",
+            labels: { boxWidth: 10, boxHeight: 10 },
+          },
           tooltip: {
-            callbacks: { label: (ctx) => formatIDR(ctx.parsed.y) },
+            callbacks: {
+              title: (items) => (items[0] ? items[0].label : ""),
+              label: (ctx) => ` ${ctx.dataset.label}: ${formatIDR(ctx.parsed.y)}`,
+            },
           },
         },
         scales: {
-          x: { grid: { display: false }, border: { display: false } },
+          x: { stacked: true, grid: { display: false }, border: { display: false } },
           y: {
+            stacked: true,
             grid: { display: false },
             border: { display: false },
             ticks: { callback: (v) => formatIDR(v) },
@@ -1112,6 +1186,26 @@ async function renderAgentCards() {
       </div>
       <h4 class="font-extrabold tracking-tighter text-black">${esc(a.name || a.agent_id)}</h4>
       <p class="text-xs text-slate-400 font-mono mb-3">ID: ${esc(a.agent_id)}</p>
+      <!-- Info kontak: nomor WA per sesi WAHA + ID bot Telegram.
+           Kecil & abu-abu agar tidak bersaing dgn nama agent. -->
+      <div class="space-y-1 text-xs text-slate-500 mb-3">
+        <p class="flex items-center gap-1.5 min-w-0" title="Nomor WhatsApp yang tertaut pada sesi WAHA agent ini">
+          <svg class="w-3.5 h-3.5 flex-shrink-0 text-emerald-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z"/>
+          </svg>
+          <span class="truncate">Nomor WA: ${
+            a.wa_phones && a.wa_phones.length
+              ? a.wa_phones.map(esc).join(", ")
+              : "—"
+          }</span>
+        </p>
+        <p class="flex items-center gap-1.5 min-w-0" title="ID bot Telegram (dari token yang tersimpan)">
+          <svg class="w-3.5 h-3.5 flex-shrink-0 text-sky-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/>
+          </svg>
+          <span class="truncate font-mono">ID Telegram: ${a.telegram_bot_id ? esc(a.telegram_bot_id) : "—"}</span>
+        </p>
+      </div>
       <span data-card-status class="text-xs text-slate-500">Terakhir diubah: ${formatDateTime(a.updated_at)}</span>
     </button>`
     )
@@ -1379,7 +1473,7 @@ async function fetchDocuments(page = kbState.page) {
             <svg class="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/>
             </svg>
-            <span class="font-medium text-slate-800 break-all">${esc(d.file_name)}</span>
+            <span class="font-medium text-slate-800 break-all min-w-0">${esc(d.file_name)}</span>
           </div>
         </td>
         <td class="px-5 py-3 whitespace-nowrap">${
@@ -2285,6 +2379,16 @@ async function deleteAdmin(admin) {
 document.addEventListener("DOMContentLoaded", () => {
   // Form login
   document.getElementById("login-form").addEventListener("submit", handleLogin);
+
+  // Dashboard: tombol "Terapkan" filter global (agent + rentang tanggal)
+  document.getElementById("dash-filter-apply").addEventListener("click", () => {
+    const error = applyDashboardFilters();
+    if (error) {
+      showToast(error, "error");
+      return;
+    }
+    renderDashboard();
+  });
 
   // Logout
   document.getElementById("logout-btn").addEventListener("click", handleLogout);

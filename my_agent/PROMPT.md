@@ -1993,3 +1993,38 @@ Please implement the following CSS/UI fixes:
 1. Ensure the pagination controls (added in the previous step) are responsive.
 2. Place the pagination controls outside the `overflow-x-auto` table wrapper so they remain fixed on the screen while the table scrolls.
 3. Use Flexbox (`d-flex justify-content-center` or `flex justify-center flex-wrap gap-2`) for the pagination buttons so they wrap neatly on small mobile screens without breaking the layout.
+
+# Context
+We need to implement several UI/UX enhancements and data filtering capabilities across the Admin Panel, specifically focusing on the Dashboard, Agent Config, Knowledge Base, and Mobile Navigation.
+
+# Task
+Please implement the following updates step-by-step:
+
+## Step 1: Dashboard - Global Filters (Agent & Date Range)
+1. At the very top of the `dashboard.html` page (below the header, above the stat cards), add a new filter section containing:
+   - A `<select>` dropdown for "Pilih Agent" (populated with all available agents, plus an option for "Semua Agent").
+   - Two `<input type="date">` fields for "Start Date" and "End Date".
+   - A "Terapkan" (Apply) button to submit these filters via GET request.
+2. Update the backend route for the Dashboard (`/` or `/dashboard`) to accept `agent_id`, `start_date`, and `end_date` query parameters.
+3. Apply these filters dynamically to ALL metrics and charts below it (Total Pelanggan, Chat Hari Ini, Total Chat, Balasan AI, Unreg Berhasil, Pengguna Diblokir, and the Aktivitas Chat Terbaru table). If a user is a normal `admin`, lock the Agent dropdown to their assigned agent only.
+
+## Step 2: Dashboard - Daily AI Cost Breakdown
+1. Update the "Penggunaan Model AI (Biaya)" section on the Dashboard.
+2. Modify the backend query to group the AI usage costs by BOTH the Date (daily) and the Model Name (e.g., `gemini-2.5-flash`).
+3. Update the frontend UI/chart for this section to display the daily breakdown clearly, showing the specific date alongside the model name and its corresponding cost.
+
+## Step 3: Mobile Bottom Navigation Bar (Icon Only)
+1. In the `base.html` template where the Bottom Navigation Bar is defined, locate the text labels (e.g., "Dashboard", "Riwayat Chat") underneath the icons.
+2. Remove or hide (`display: none`) these text labels entirely for the mobile view (`max-width: 767px`). The Bottom Navigation Bar should display ONLY the icons. Ensure the icons are centered and appropriately sized for touch targets.
+
+## Step 4: Agent Config - Display Contact Info
+1. In the `agent_config.html` template, update the Agent cards.
+2. Add two new lines of information below the Agent Name and ID:
+   - "Nomor WA: [Insert WA Number/Session ID]" (Fetch this from the associated WAHA session or agent config).
+   - "ID Telegram: [Insert Tele ID]" (Fetch this from the associated Telegram config, if applicable).
+3. Ensure this information is visually distinct (e.g., using a smaller, gray text or icons) and fits well within the card layout.
+
+## Step 5: Knowledge Base - Text Wrapping & Formatting
+1. In the `knowledge_base.html` template, address the text overflow issue in the "NAMA FILE" column of the "Dokumen Terunggah" table.
+2. Add a CSS class to the `<td>` or `<div>` containing the file name to enforce word-wrapping. If using Tailwind CSS, use `break-all` or `break-words`. If using custom CSS, add `word-break: break-all;` or `overflow-wrap: break-word;`.
+3. Ensure this formatting applies cleanly to both the desktop view and the horizontally scrolling mobile view, preventing long filenames like `Knowledge_Base_CS_PT_WAKI.pdf` from breaking the table layout.

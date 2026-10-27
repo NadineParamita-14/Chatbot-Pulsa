@@ -41,7 +41,7 @@ import requests
 from flask import Flask, g, jsonify, render_template, request
 from flask_cors import CORS
 from flask_socketio import SocketIO
-from sqlalchemy import func
+from sqlalchemy import distinct, false, func
 from sqlalchemy.orm import joinedload
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -493,16 +493,68 @@ def logout():
 # =====================================================================
 # ENDPOINT: DASHBOARD
 # =====================================================================
+def _dashboard_filters():
+    """Parse filter global dashboard dari query string.
+
+    Mendukung `agent_id`, `start_date`, `end_date` (format YYYY-MM-DD).
+    Kembalikan (agent_id, start_dt, end_dt, error). Tanggal akhir mencakup
+    sepanjang hari itu (23:59:59 UTC) agar filter inklusif."""
+    agent_id = (request.args.get("agent_id") or "").strip() or None
+    start_raw = (request.args.get("start_date") or "").strip()
+    end_raw = (request.args.get("end_date") or "").strip()
+
+    start_dt = end_dt = None
+    try:
+        if start_raw:
+            start_dt = datetime.strptime(start_raw, "%Y-%m-%d").replace(
+                hour=0, minute=0, second=0, tzinfo=timezone.utc
+            )
+        if end_raw:
+            end_dt = datetime.strptime(end_raw, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59, tzinfo=timezone.utc
+            )
+    except ValueError:
+        return agent_id, None, None, "Format tanggal tidak valid (gunakan YYYY-MM-DD)."
+
+    if start_dt and end_dt and start_dt > end_dt:
+        return agent_id, None, None, "Tanggal mulai tidak boleh setelah tanggal akhir."
+    return agent_id, start_dt, end_dt, None
+
+
+def _resolve_agent_scope(db, requested_agent_id: str | None):
+    """Terapkan RBAC pada filter agent dashboard.
+
+    Superadmin: bebas memakai agent_id mana pun (None = semua agent).
+    Admin: dipaksa ke agent penugasannya — parameter dari client diabaikan
+    agar ia tidak bisa mengintip statistik agent milik admin lain.
+    Kembalikan (agent_id_efektif, error)."""
+    if g.current_admin.role == AdminRole.SUPERADMIN:
+        return requested_agent_id, None
+    assigned = _assigned_agents_for_admin(db, g.current_admin)
+    if not assigned:
+        return "__none__", None  # tanpa penugasan -> semua metrik nol
+    return assigned[0].agent_id, None
+
+
 @app.route("/api/dashboard/charts", methods=["GET"])
 @admin_required
 @api_endpoint
 def dashboard_charts():
-    """Dataset dua chart dashboard: biaya AI per model (bulan ini) dan
-    tren pelanggan unik 7 hari terakhir.
+    """Dataset dua chart dashboard: rincian harian biaya AI per model dan
+    tren pelanggan unik per hari — semua mengikuti filter
+    ?agent_id=&start_date=&end_date=.
 
     RBAC: dataset `models` (biaya AI = data finansial) hanya dikirim ke
     superadmin — role `admin` hanya menerima tren pelanggan."""
-    data = get_dashboard_charts()
+    db = get_db()
+    agent_id, start_dt, end_dt, error = _dashboard_filters()
+    if error:
+        return err(error, 400)
+    agent_id, scope_error = _resolve_agent_scope(db, agent_id)
+    if scope_error:
+        return err(scope_error, 403)
+
+    data = get_dashboard_charts(agent_id=agent_id, start_dt=start_dt, end_dt=end_dt)
     if g.current_admin.role != AdminRole.SUPERADMIN:
         data.pop("models", None)
     return ok(data=data)
@@ -514,49 +566,108 @@ def dashboard_charts():
 def dashboard_stats():
     """Statistik dashboard — fokus Customer Service.
 
-    Fitur pulsa (produk & pesanan) sudah dimatikan dari aplikasi, jadi
-    metrik yang dilaporkan kini seputar aktivitas bot CS: percakapan,
-    pemakaian AI, hasil unreg DCB, dan moderasi pengguna."""
+    Semua metrik percakapan/AI/unreg mengikuti filter global
+    ?agent_id=&start_date=&end_date=. Metrik status point-in-time
+    (pengguna diblokir, mode manual) tetap global karena bukan data
+    historis per agent/tanggal.
+
+    RBAC: role admin selalu discope ke agent penugasannya, dan biaya AI
+    bulan ini hanya dikirim ke superadmin."""
     db = get_db()
     now = datetime.now(timezone.utc)
     start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
     start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
+    agent_id, start_dt, end_dt, error = _dashboard_filters()
+    if error:
+        return err(error, 400)
+    agent_id, scope_error = _resolve_agent_scope(db, agent_id)
+    if scope_error:
+        return err(scope_error, 403)
+
+    # Filter bersama tabel chat: agent + rentang tanggal (bila diisi).
+    def chat_scope(query):
+        if agent_id == "__none__":
+            return query.filter(false())
+        if agent_id:
+            query = query.filter(ChatHistory.agent_id == agent_id)
+        if start_dt:
+            query = query.filter(ChatHistory.created_at >= start_dt)
+        if end_dt:
+            query = query.filter(ChatHistory.created_at <= end_dt)
+        return query
+
+    # Kartu "Chat Hari Ini": dengan rentang filter -> hitungan dalam rentang;
+    # tanpa rentang -> perilaku lama (chat sejak awal hari ini).
+    if start_dt or end_dt:
+        chats_today_val = chat_scope(db.query(func.count(ChatHistory.id))).scalar() or 0
+    else:
+        chats_today_val = (
+            chat_scope(
+                db.query(func.count(ChatHistory.id)).filter(
+                    ChatHistory.created_at >= start_of_day
+                )
+            ).scalar()
+            or 0
+        )
+
+    def ai_scope(query, default_start):
+        if agent_id == "__none__":
+            return query.filter(false())
+        if agent_id:
+            query = query.filter(AiUsageLog.agent_id == agent_id)
+        query = query.filter(AiUsageLog.created_at >= (start_dt or default_start))
+        if end_dt:
+            query = query.filter(AiUsageLog.created_at <= end_dt)
+        return query
+
+    def unreg_scope(query):
+        if agent_id == "__none__":
+            return query.filter(false())
+        if agent_id:
+            query = query.filter(DcbApiLog.agent_id == agent_id)
+        if start_dt:
+            query = query.filter(DcbApiLog.created_at >= start_dt)
+        if end_dt:
+            query = query.filter(DcbApiLog.created_at <= end_dt)
+        return query
+
     stats = {
-        # --- Aktivitas percakapan ---
-        "total_customers": db.query(func.count(User.id)).scalar() or 0,
-        "total_chats": db.query(func.count(ChatHistory.id)).scalar() or 0,
-        # Chat sejak awal hari ini (batas hari mengikuti UTC server)
-        "chats_today": (
-            db.query(func.count(ChatHistory.id))
-            .filter(ChatHistory.created_at >= start_of_day)
-            .scalar()
+        # --- Aktivitas percakapan (terfilter agent + rentang) ---
+        # Pelanggan unik yang pernah chat dalam cakupan filter
+        "total_customers": (
+            chat_scope(
+                db.query(func.count(distinct(User.platform_id)))
+                .select_from(ChatHistory)
+                .join(User, User.id == ChatHistory.user_id)
+            ).scalar()
             or 0
         ),
+        "total_chats": chat_scope(db.query(func.count(ChatHistory.id))).scalar() or 0,
+        # Dengan rentang filter = hitungan rentang; tanpa = hari ini
+        "chats_today": chats_today_val,
         # --- Pemakaian AI (sumber: ai_usage_logs) ---
         "ai_replies_today": (
-            db.query(func.count(AiUsageLog.id))
-            .filter(AiUsageLog.created_at >= start_of_day)
-            .scalar()
-            or 0
+            ai_scope(db.query(func.count(AiUsageLog.id)), start_of_day).scalar() or 0
         ),
         "ai_cost_month": float(
-            db.query(func.coalesce(func.sum(AiUsageLog.total_cost), 0))
-            .filter(AiUsageLog.created_at >= start_of_month)
-            .scalar()
+            ai_scope(
+                db.query(func.coalesce(func.sum(AiUsageLog.total_cost), 0)),
+                start_of_month,
+            ).scalar()
             or 0
         ),
         # --- Hasil unreg DCB (sumber: audit dcb_api_logs) ---
         "unreg_success": (
-            db.query(func.count(DcbApiLog.id))
-            .filter(
-                DcbApiLog.tool_name == "unsubscribe_service",
-                DcbApiLog.success.is_(True),
-            )
-            .scalar()
+            unreg_scope(
+                db.query(func.count(DcbApiLog.id)).filter(
+                    DcbApiLog.tool_name == "unsubscribe_service",
+                    DcbApiLog.success.is_(True),
+                )
+            ).scalar()
             or 0
         ),
-        # --- Moderasi / human takeover ---
+        # --- Moderasi / human takeover (status kini — global) ---
         "blocked_users": (
             db.query(func.count(User.id)).filter(User.is_blocked.is_(True)).scalar() or 0
         ),
@@ -568,14 +679,10 @@ def dashboard_stats():
         ),
     }
 
-    # 5 aktivitas chat terbaru untuk tabel ringkasan dashboard
-    recent = (
-        db.query(ChatHistory)
-        .options(joinedload(ChatHistory.user))
-        .order_by(ChatHistory.created_at.desc())
-        .limit(5)
-        .all()
-    )
+    # 5 aktivitas chat terbaru untuk tabel ringkasan dashboard (terfilter)
+    recent = chat_scope(
+        db.query(ChatHistory).options(joinedload(ChatHistory.user))
+    ).order_by(ChatHistory.created_at.desc()).limit(5).all()
     stats["recent_chats"] = [
         {
             "full_name": (c.user.full_name if c.user else None) or "Tidak dikenal",
@@ -2866,19 +2973,40 @@ def list_agents():
     else:
         agents = sorted(assigned, key=lambda a: a.agent_id)
         empty_message = "Belum ada agent yang ditugaskan ke akun Anda."
-    return ok(
-        data=[
+
+    # Info kontak utk kartu agent: nomor WA dari sesi WAHA milik agent
+    # (satu panggilan ke WAHA utk semua agent; gagal -> daftar kosong) dan
+    # ID bot Telegram (bagian numerik token — bukan rahasia).
+    session_names_by_cfg: dict = {}
+    if agents:
+        for cfg_id, session_name in (
+            db.query(AgentWahaSession.agent_id, AgentWahaSession.session_name).all()
+        ):
+            session_names_by_cfg.setdefault(cfg_id, []).append(session_name)
+    live_sessions, _ = _waha_live_sessions()
+
+    data = []
+    for a in agents:
+        phones = []
+        for name in session_names_by_cfg.get(a.id, []):
+            me = (live_sessions.get(name) or {}).get("me") or {}
+            phone = (me.get("id") or "").split("@")[0]
+            if phone:
+                phones.append(phone)
+        token = a.telegram_token or ""
+        bot_id = token.split(":", 1)[0] if token and ":" in token else None
+        data.append(
             {
                 "agent_id": a.agent_id,
                 "name": a.name,
                 "is_active": bool(a.is_active),
                 "model_name": a.model_name,
                 "updated_at": _iso(a.updated_at),
+                "wa_phones": phones,
+                "telegram_bot_id": bot_id,
             }
-            for a in agents
-        ],
-        message=empty_message if not agents else "OK",
-    )
+        )
+    return ok(data=data, message=empty_message if not agents else "OK")
 
 
 # =====================================================================

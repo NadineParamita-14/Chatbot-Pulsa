@@ -1432,56 +1432,108 @@ def get_ai_usage_summary() -> dict:
         session.close()
 
 
-def get_dashboard_charts() -> dict:
+def get_dashboard_charts(agent_id: str | None = None, start_dt=None, end_dt=None) -> dict:
     """Dua dataset chart dashboard (satu panggilan /api/dashboard/charts):
 
-    1. models — total biaya AI per model (bulan berjalan), dari ai_usage_logs.
-    2. users  — jumlah pelanggan unik per hari, 7 hari terakhir (dihitung
-       dari DISTINCT platform_id di chat_histories; hari tanpa chat = 0).
+    1. models — RINCIAN HARIAN biaya AI per model dari ai_usage_logs:
+       labels = daftar tanggal, datasets = satu baris per model dengan
+       biaya harian yang selaras urutan labels. Rentang mengikuti filter
+       (start_dt..end_dt); default: bulan berjalan.
+    2. users  — jumlah pelanggan unik per hari (dihitung dari DISTINCT
+       platform_id di chat_histories; hari tanpa chat = 0). Rentang
+       custom bila difilter; default: 7 hari terakhir.
+    `agent_id` opsional membatasi kedua dataset pada satu agent.
     """
     session = SessionLocal()
     try:
         now = datetime.now(timezone.utc)
         start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-        # 1. Biaya per model AI — bulan berjalan, urut biaya terbesar
-        model_rows = (
+        # ---- 1. Rincian harian biaya AI per model ---------------------
+        m_start = start_dt or start_of_month
+        m_end = end_dt or now
+        # Amankan chart dari rentang ekstrem: tampilkan maks 62 hari terakhir
+        if (m_end - m_start).days > 62:
+            m_start = m_end - timedelta(days=62)
+
+        cost_query = (
             session.query(
+                func.date(AiUsageLog.created_at).label("day"),
                 AiUsageLog.model_name,
                 func.coalesce(func.sum(AiUsageLog.total_cost), 0.0),
             )
-            .filter(AiUsageLog.created_at >= start_of_month)
-            .group_by(AiUsageLog.model_name)
-            .order_by(func.sum(AiUsageLog.total_cost).desc())
+            .filter(
+                AiUsageLog.created_at >= m_start,
+                AiUsageLog.created_at <= m_end,
+            )
+        )
+        if agent_id:
+            cost_query = cost_query.filter(AiUsageLog.agent_id == agent_id)
+        cost_rows = (
+            cost_query.group_by(func.date(AiUsageLog.created_at), AiUsageLog.model_name)
+            .order_by(func.date(AiUsageLog.created_at))
             .all()
         )
 
-        # 2. Pelanggan unik per hari — 7 hari terakhir termasuk hari ini
-        start_7d = (now - timedelta(days=6)).replace(
+        # Kerangka tanggal lengkap agar hari tanpa pemakaian = 0
+        day_labels = []
+        cursor = m_start.date()
+        while cursor <= m_end.date():
+            day_labels.append(cursor)
+            cursor += timedelta(days=1)
+
+        cost_map = {}  # (date, model) -> biaya
+        model_totals = {}  # model -> total biaya (untuk urutan dataset)
+        for day, model_name, cost in cost_rows:
+            cost_map[(day, model_name)] = float(cost or 0.0)
+            model_totals[model_name] = model_totals.get(model_name, 0.0) + float(cost or 0.0)
+
+        # Model diurutkan biaya terbesar dulu; dataset selaras dg labels
+        ordered_models = sorted(model_totals, key=lambda m: model_totals[m], reverse=True)
+        chart_models = {
+            "labels": [d.strftime("%d %b") for d in day_labels],
+            "datasets": [
+                {
+                    "model": m,
+                    "values": [cost_map.get((d, m), 0.0) for d in day_labels],
+                }
+                for m in ordered_models
+            ],
+        }
+
+        # ---- 2. Pelanggan unik per hari -------------------------------
+        u_start = start_dt or (now - timedelta(days=6)).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
-        user_rows = (
+        u_end = end_dt or now
+        if (u_end - u_start).days > 62:
+            u_start = u_end - timedelta(days=62)
+
+        user_query = (
             session.query(
                 func.date(ChatHistory.created_at).label("day"),
                 func.count(distinct(User.platform_id)),
             )
             .join(User, User.id == ChatHistory.user_id)
-            .filter(ChatHistory.created_at >= start_7d)
-            .group_by(func.date(ChatHistory.created_at))
-            .all()
+            .filter(
+                ChatHistory.created_at >= u_start,
+                ChatHistory.created_at <= u_end,
+            )
         )
+        if agent_id:
+            user_query = user_query.filter(ChatHistory.agent_id == agent_id)
+        user_rows = user_query.group_by(func.date(ChatHistory.created_at)).all()
+
         count_by_day = {str(r.day): int(r[1] or 0) for r in user_rows}
         user_labels, user_values = [], []
-        for i in range(7):
-            day = (start_7d + timedelta(days=i)).date()
-            user_labels.append(day.strftime("%d %b"))
-            user_values.append(count_by_day.get(day.isoformat(), 0))
+        cursor = u_start.date()
+        while cursor <= u_end.date():
+            user_labels.append(cursor.strftime("%d %b"))
+            user_values.append(count_by_day.get(cursor.isoformat(), 0))
+            cursor += timedelta(days=1)
 
         return {
-            "models": {
-                "labels": [r[0] for r in model_rows],
-                "values": [float(r[1] or 0.0) for r in model_rows],
-            },
+            "models": chart_models,
             "users": {"labels": user_labels, "values": user_values},
         }
     finally:
