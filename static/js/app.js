@@ -104,6 +104,25 @@ function emptyRow(colspan, text = "💤 Belum ada data untuk ditampilkan.") {
   return `<tr><td colspan="${colspan}" class="px-5 py-10 text-center text-sm text-slate-400">${esc(text)}</td></tr>`;
 }
 
+/**
+ * Mode loading saat PINDAH HALAMAN tabel terpaginasi: redupkan tbody &
+ * kunci interaksi (termasuk tombol paginasi, cegah klik ganda) TANPA
+ * mengosongkan konten. Konten yang menyusut selama loading membuat tinggi
+ * dokumen menyempit sesaat sehingga browser menjepit scroll ke atas —
+ * dengan konten dipertahankan, tinggi tetap dan posisi scroll pengguna
+ * tidak bergeser. Kembalikan fungsi pemulih (panggil di `finally`).
+ */
+function beginInPlacePageLoad(tbody, pagEl) {
+  tbody.style.opacity = "0.45";
+  tbody.style.pointerEvents = "none";
+  if (pagEl) pagEl.style.pointerEvents = "none";
+  return () => {
+    tbody.style.opacity = "";
+    tbody.style.pointerEvents = "";
+    if (pagEl) pagEl.style.pointerEvents = "";
+  };
+}
+
 // ---------------------------------------------------------------------
 // TOAST (notifikasi sukses / error)
 // ---------------------------------------------------------------------
@@ -219,11 +238,10 @@ function paginationPages(current, totalPages) {
  * Render kontrol paginasi ke `container` dari meta backend
  * {page, per_page, total, total_pages}. `compact` = varian ringkas
  * (tombol ‹ › + "2/5") untuk area sempit seperti pane kontak chat.
- * `scrollTarget` = elemen yang digulirkan ke atas viewport saat pindah
- * halaman, agar pengguna mendarat di kepala tabel — bukan tertinggal di
- * bawah halaman baru (SPA tanpa reload, jadi posisi scroll tetap).
+ * Pindah halaman TIDAK menggulir dokumen — posisi scroll dipertahankan
+ * (lihat beginInPlacePageLoad pada view masing-masing).
  */
-function renderPagination(container, meta, onPage, { compact = false, scrollTarget = null } = {}) {
+function renderPagination(container, meta, onPage, { compact = false } = {}) {
   if (!meta || meta.total_pages <= 1) {
     container.innerHTML =
       !compact && meta && meta.total
@@ -271,14 +289,7 @@ function renderPagination(container, meta, onPage, { compact = false, scrollTarg
 
   container.innerHTML = html;
   container.querySelectorAll("button[data-page]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      onPage(parseInt(btn.dataset.page, 10));
-      // Gulirkan tabel ke atas viewport hanya saat pindah halaman (bukan
-      // render awal) — pengguna selalu melihat baris pertama halaman baru.
-      if (scrollTarget) {
-        scrollTarget.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    });
+    btn.addEventListener("click", () => onPage(parseInt(btn.dataset.page, 10)));
   });
 }
 
@@ -1479,13 +1490,25 @@ async function populateKbAgentSelect() {
 
 /** Ambil daftar dokumen dari GET /api/knowledge-base lalu render tabel.
  *  Terpaginasi 10 dokumen/halaman (kbState.page). */
-const kbState = { page: 1 };
+const kbState = { page: 1, loaded: false };
 
 async function fetchDocuments(page = kbState.page) {
   const tbody = document.getElementById("kb-tbody");
-  setLoading(tbody);
+  const pagEl = document.getElementById("kb-pagination");
 
-  const res = await Api.get("/knowledge-base", { page, per_page: 10 });
+  let restore;
+  if (!kbState.loaded) {
+    setLoading(tbody); // muat pertama kali masuk view
+  } else {
+    restore = beginInPlacePageLoad(tbody, pagEl); // pindah halaman: tetap di tempat
+  }
+
+  let res;
+  try {
+    res = await Api.get("/knowledge-base", { page, per_page: 10 });
+  } finally {
+    if (restore) restore();
+  }
   kbState.page = res.meta ? res.meta.page : 1;
   const documents = res.data;
   const isSuper = App.user && App.user.role === "superadmin";
@@ -1540,11 +1563,11 @@ async function fetchDocuments(page = kbState.page) {
     btn.addEventListener("click", () => deleteDocument(doc));
   });
 
+  kbState.loaded = true; // render pertama selesai
   renderPagination(
     document.getElementById("kb-pagination"),
     res.meta,
-    fetchDocuments,
-    { scrollTarget: document.getElementById("kb-list-col") }
+    fetchDocuments
   );
 }
 
@@ -2161,18 +2184,14 @@ async function fetchAiUsage(page = aiUsageState.page) {
   const tbody = document.getElementById("ai-usage-tbody");
   const pagEl = document.getElementById("ai-usage-pagination");
 
+  let restore;
   if (!aiUsageState.loaded) {
     // Muat pertama kali masuk view: spinner penuh di ringkasan & tabel.
     setLoading(statsEl);
     setLoading(tbody);
   } else {
-    // Pindah halaman: JANGAN kosongkan konten. tbody yang menyusut selama
-    // loading membuat tinggi dokumen menyempit sesaat sehingga browser
-    // menjepit scroll ke atas ("balik ke paling atas"). Cukup redupkan
-    // tabel & kunci interaksi — tinggi tetap, posisi scroll dipertahankan.
-    tbody.style.opacity = "0.45";
-    tbody.style.pointerEvents = "none";
-    if (pagEl) pagEl.style.pointerEvents = "none"; // cegah klik ganda
+    // Pindah halaman: konten dipertahankan (tinggi tetap, scroll tak geser).
+    restore = beginInPlacePageLoad(tbody, pagEl);
   }
 
   const params = { page, per_page: 10 };
@@ -2185,9 +2204,7 @@ async function fetchAiUsage(page = aiUsageState.page) {
   } finally {
     // Selalu pulihkan interaksi meski request gagal (error ditangani
     // pemanggil lewat toast).
-    tbody.style.opacity = "";
-    tbody.style.pointerEvents = "";
-    if (pagEl) pagEl.style.pointerEvents = "";
+    if (restore) restore();
   }
   aiUsageState.page = res.meta ? res.meta.page : 1;
   const { summary, logs } = res.data;
@@ -2249,9 +2266,9 @@ async function fetchAiUsage(page = aiUsageState.page) {
         .join("")
     : emptyRow(7, "💤 Bot belum melakukan percakapan — pemakaian AI akan tercatat di sini.");
 
-  // Tanpa scrollTarget: posisi scroll dipertahankan persis saat pindah
-  // halaman — kontrol paginasi ada di bawah kartu, jadi pengguna tetap
-  // berada di tempat yang sama (tinggi tabel konstan, 10 baris/halaman).
+  // Pindah halaman tidak pernah menggulir dokumen — konten lama dipertahankan
+  // selama loading (beginInPlacePageLoad) sehingga pengguna tetap persis di
+  // tempatnya, dekat kontrol paginasi di bawah kartu ini.
   aiUsageState.loaded = true; // render pertama selesai
   renderPagination(
     document.getElementById("ai-usage-pagination"),
@@ -2263,13 +2280,25 @@ async function fetchAiUsage(page = aiUsageState.page) {
 // =====================================================================
 // VIEW: ADMIN MANAGEMENT (superadmin) — daftar admin, 10 baris/halaman
 // =====================================================================
-const adminsState = { page: 1 };
+const adminsState = { page: 1, loaded: false };
 
 async function renderAdmins(page = adminsState.page) {
   const tbody = document.getElementById("admins-tbody");
-  setLoading(tbody);
+  const pagEl = document.getElementById("admins-pagination");
 
-  const res = await Api.get("/admins", { page, per_page: 10 });
+  let restore;
+  if (!adminsState.loaded) {
+    setLoading(tbody); // muat pertama kali masuk view
+  } else {
+    restore = beginInPlacePageLoad(tbody, pagEl); // pindah halaman: tetap di tempat
+  }
+
+  let res;
+  try {
+    res = await Api.get("/admins", { page, per_page: 10 });
+  } finally {
+    if (restore) restore();
+  }
   adminsState.page = res.meta ? res.meta.page : 1;
   let admins = res.data;
 
@@ -2325,11 +2354,11 @@ async function renderAdmins(page = adminsState.page) {
     }
   });
 
+  adminsState.loaded = true; // render pertama selesai
   renderPagination(
     document.getElementById("admins-pagination"),
     res.meta,
-    renderAdmins,
-    { scrollTarget: document.getElementById("admins-table-card") }
+    renderAdmins
   );
 }
 
