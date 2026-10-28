@@ -3018,9 +3018,15 @@ def list_agents():
 def api_ai_usage():
     """Ringkasan pemakaian AI bulan/hari ini + log terpaginasi (10/halaman).
 
-    Sumber data ai_usage_logs (satu baris per balasan AI webhook)."""
+    Sumber data ai_usage_logs (satu baris per balasan AI webhook).
+    Mendukung filter rentang tanggal tabel log via ?start_date=&end_date=
+    (YYYY-MM-DD, inklusif) — ringkasan bulan berjalan tetap global."""
     page = max(request.args.get("page", 1, type=int) or 1, 1)
-    logs, meta = get_ai_usage_logs(page=page, per_page=10)
+    # Parse tanggal memakai helper yang sama dengan filter global dashboard
+    _, start_dt, end_dt, error = _dashboard_filters()
+    if error:
+        return err(error, 400)
+    logs, meta = get_ai_usage_logs(page=page, per_page=10, start_dt=start_dt, end_dt=end_dt)
     return ok(
         data={
             "summary": get_ai_usage_summary(),

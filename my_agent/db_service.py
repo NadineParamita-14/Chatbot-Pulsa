@@ -1540,18 +1540,30 @@ def get_dashboard_charts(agent_id: str | None = None, start_dt=None, end_dt=None
         session.close()
 
 
-def get_ai_usage_logs(limit: int = 100, page: int | None = None, per_page: int = 10):
+def get_ai_usage_logs(
+    limit: int = 100,
+    page: int | None = None,
+    per_page: int = 10,
+    start_dt=None,
+    end_dt=None,
+):
     """Log pemakaian AI, terbaru di atas.
 
     Tanpa `page`: `limit` baris terbaru (perilaku lama, kompatibel).
     Dengan `page`: paginasi `per_page` baris/halaman —
     kembalikan (items, meta) dengan meta page/per_page/total/total_pages.
+    `start_dt`/`end_dt` (datetime UTC) opsional membatasi rentang
+    `created_at` — dipakai filter tanggal halaman AI Usage.
     """
     session = SessionLocal()
     try:
         query = session.query(AiUsageLog).order_by(
             AiUsageLog.created_at.desc(), AiUsageLog.id.desc()
         )
+        if start_dt is not None:
+            query = query.filter(AiUsageLog.created_at >= start_dt)
+        if end_dt is not None:
+            query = query.filter(AiUsageLog.created_at <= end_dt)
 
         meta = None
         if page is not None:

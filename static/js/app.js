@@ -53,6 +53,23 @@ function formatDateTime(iso) {
   });
 }
 
+/**
+ * Format platform ID internal menjadi kontak yang mudah dibaca:
+ * - buang suffix internal WAHA/Baileys ("@c.us", "@lid", dst.);
+ * - nomor WhatsApp diawali "+" (cth: 628123456789 -> +628123456789);
+ * - ID Telegram dibiarkan apa adanya (bukan nomor telepon).
+ * `channel` opsional — tanpa itu dipakai heuristik pola nomor Indonesia.
+ */
+function formatPlatformId(raw, channel) {
+  if (raw === null || raw === undefined || raw === "") return "";
+  const id = String(raw).split("@")[0].trim();
+  const looksLikeWaNumber =
+    (id.startsWith("62") && /^\d+$/.test(id) && id.length >= 10) ||
+    (id.startsWith("0") && /^\d+$/.test(id) && id.length >= 9);
+  const isWa = channel ? channel === "whatsapp" : looksLikeWaNumber;
+  return isWa ? `+${id}` : id;
+}
+
 /** Badge pill berwarna untuk semua kolom status (gaya modern SaaS:
  *  emerald = sukses/paid/aktif, amber = pending/unpaid, rose = gagal). */
 function statusBadge(status) {
@@ -202,8 +219,11 @@ function paginationPages(current, totalPages) {
  * Render kontrol paginasi ke `container` dari meta backend
  * {page, per_page, total, total_pages}. `compact` = varian ringkas
  * (tombol ‹ › + "2/5") untuk area sempit seperti pane kontak chat.
+ * `scrollTarget` = elemen yang digulirkan ke atas viewport saat pindah
+ * halaman, agar pengguna mendarat di kepala tabel — bukan tertinggal di
+ * bawah halaman baru (SPA tanpa reload, jadi posisi scroll tetap).
  */
-function renderPagination(container, meta, onPage, { compact = false } = {}) {
+function renderPagination(container, meta, onPage, { compact = false, scrollTarget = null } = {}) {
   if (!meta || meta.total_pages <= 1) {
     container.innerHTML =
       !compact && meta && meta.total
@@ -251,7 +271,14 @@ function renderPagination(container, meta, onPage, { compact = false } = {}) {
 
   container.innerHTML = html;
   container.querySelectorAll("button[data-page]").forEach((btn) => {
-    btn.addEventListener("click", () => onPage(parseInt(btn.dataset.page, 10)));
+    btn.addEventListener("click", () => {
+      onPage(parseInt(btn.dataset.page, 10));
+      // Gulirkan tabel ke atas viewport hanya saat pindah halaman (bukan
+      // render awal) — pengguna selalu melihat baris pertama halaman baru.
+      if (scrollTarget) {
+        scrollTarget.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
   });
 }
 
@@ -453,7 +480,7 @@ async function renderDashboard() {
           (c) => `
         <tr class="hover:bg-slate-50 transition-colors">
           <td class="px-5 py-3 font-semibold text-slate-800">${esc(c.full_name)}</td>
-          <td class="px-5 py-3 font-mono text-xs text-slate-500">${esc(c.platform_id)}</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-500">${esc(formatPlatformId(c.platform_id, c.channel))}</td>
           <td class="px-5 py-3">${statusBadge(c.channel)}</td>
           <td class="px-5 py-3"><span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-600">${esc(c.agent_id)}</span></td>
           <td class="px-5 py-3 text-slate-600 max-w-xs truncate" title="${esc(c.input)}">${esc(c.input)}</td>
@@ -799,7 +826,7 @@ function renderChatUserList() {
             <span class="text-[10px] text-slate-400 whitespace-nowrap">${formatTime(u.last_message_at)}</span>
           </div>
           <div class="flex items-center justify-between gap-2">
-            <p class="text-xs text-slate-500 font-mono truncate">${esc(u.platform_id || "")}</p>
+            <p class="text-xs text-slate-500 font-mono truncate">${esc(formatPlatformId(u.platform_id, u.channel))}</p>
             <span class="flex items-center gap-1 flex-shrink-0">
               ${channelBadge}
               ${u.user_id !== chatsState.activeId ? unreadBadgeHTML(u.unread_count) : ""}
@@ -824,6 +851,8 @@ function renderChatUserList() {
     (p) => {
       chatsState.page = p;
       renderChatUserListPane().catch((e) => showToast(e.message, "error"));
+      // Kontak halaman baru mulai dari atas pane (ganti halaman, bukan render awal)
+      document.getElementById("chat-user-list").scrollTop = 0;
     },
     { compact: true }
   );
@@ -873,7 +902,7 @@ async function loadChatConversation(userId) {
   const name = conv.full_name || conv.username || `User ${conv.platform_id}`;
   const channelLabel = conv.channel === "whatsapp" ? "WhatsApp" : "Telegram";
   document.getElementById("chat-header-name").textContent = name;
-  document.getElementById("chat-header-id").textContent = `${channelLabel} · ${conv.platform_id || ""}`;
+  document.getElementById("chat-header-id").textContent = `${channelLabel} · ${formatPlatformId(conv.platform_id, conv.channel)}`;
   document.getElementById("chat-header-avatar").textContent = name.charAt(0).toUpperCase();
 
   // Status Human Takeover user ini -> UI toggle & input
@@ -1514,7 +1543,8 @@ async function fetchDocuments(page = kbState.page) {
   renderPagination(
     document.getElementById("kb-pagination"),
     res.meta,
-    fetchDocuments
+    fetchDocuments,
+    { scrollTarget: document.getElementById("kb-list-col") }
   );
 }
 
@@ -2122,8 +2152,9 @@ async function renderAiUsage() {
 }
 
 /** Ambil data pemakaian AI lalu render 3 kartu ringkasan + tabel log
- *  (terpaginasi 10 baris/halaman). */
-const aiUsageState = { page: 1 };
+ *  (terpaginasi 10 baris/halaman). Tabel log bisa disaring rentang tanggal
+ *  (start_date/end_date) — ringkasan bulan berjalan tetap global. */
+const aiUsageState = { page: 1, startDate: "", endDate: "" };
 
 async function fetchAiUsage(page = aiUsageState.page) {
   const statsEl = document.getElementById("ai-usage-stats");
@@ -2131,7 +2162,10 @@ async function fetchAiUsage(page = aiUsageState.page) {
   setLoading(statsEl);
   setLoading(tbody);
 
-  const res = await Api.get("/ai-usage", { page, per_page: 10 });
+  const params = { page, per_page: 10 };
+  if (aiUsageState.startDate) params.start_date = aiUsageState.startDate;
+  if (aiUsageState.endDate) params.end_date = aiUsageState.endDate;
+  const res = await Api.get("/ai-usage", params);
   aiUsageState.page = res.meta ? res.meta.page : 1;
   const { summary, logs } = res.data;
 
@@ -2179,7 +2213,7 @@ async function fetchAiUsage(page = aiUsageState.page) {
           (l) => `
         <tr class="hover:bg-gray-50 transition-colors">
           <td class="px-8 py-4 text-slate-500 whitespace-nowrap">${formatDateTime(l.created_at)}</td>
-          <td class="px-5 py-4 font-mono text-xs">${esc(l.platform_id)}</td>
+          <td class="px-5 py-4 font-mono text-xs">${esc(formatPlatformId(l.platform_id))}</td>
           <td class="px-5 py-4 font-medium text-gray-900">${esc(l.agent_id)}</td>
           <td class="px-5 py-4">
             <span class="inline-flex items-center bg-gray-50 text-gray-600 rounded-full px-3 py-1 text-xs">${esc(l.model_name)}</span>
@@ -2195,7 +2229,8 @@ async function fetchAiUsage(page = aiUsageState.page) {
   renderPagination(
     document.getElementById("ai-usage-pagination"),
     res.meta,
-    fetchAiUsage
+    fetchAiUsage,
+    { scrollTarget: document.getElementById("ai-usage-table-card") }
   );
 }
 
@@ -2267,7 +2302,8 @@ async function renderAdmins(page = adminsState.page) {
   renderPagination(
     document.getElementById("admins-pagination"),
     res.meta,
-    renderAdmins
+    renderAdmins,
+    { scrollTarget: document.getElementById("admins-table-card") }
   );
 }
 
@@ -2393,6 +2429,18 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     renderDashboard();
+  });
+
+  // AI Usage: tombol "Terapkan" filter rentang tanggal tabel log —
+  // filter baru berarti kembali ke halaman pertama.
+  document.getElementById("ai-usage-filter-apply").addEventListener("click", () => {
+    aiUsageState.startDate = document.getElementById("ai-usage-filter-start").value || "";
+    aiUsageState.endDate = document.getElementById("ai-usage-filter-end").value || "";
+    if (aiUsageState.startDate && aiUsageState.endDate && aiUsageState.startDate > aiUsageState.endDate) {
+      showToast("Tanggal mulai tidak boleh melebihi tanggal akhir.", "error");
+      return;
+    }
+    fetchAiUsage(1);
   });
 
   // Logout

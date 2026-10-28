@@ -2101,3 +2101,42 @@ Please execute the following UI/UX changes across the layout templates (e.g., `b
 ## Step 4: Spacing and Cleanliness
 1. Mimic Telkomsel's web design by ensuring there is ample padding (`p-6` or `p-8`) inside the white cards.
 2. Remove any unnecessary borders; rely on subtle drop shadows (`shadow-sm` or `shadow-md`) to separate the white cards from the light gray background.
+
+# Context
+We need to apply further UI/UX refinements. The user wants to remove the floating chatbot mascot, make the Chat View layout full-screen (especially on mobile), format internal WA IDs ('lid') into readable WhatsApp numbers, and add date filtering to the AI Usage page.
+
+# Task
+Please implement the following updates step-by-step:
+
+## Step 1: Remove Floating Mascot
+1. In `base.html` or wherever the floating chatbot mascot (`<div id="floating-mascot">`) was added in the previous step, delete or hide the element completely.
+
+## Step 2: Full-Screen Chat View Layout
+1. In the template that renders the actual Chat Interface (e.g., inside `chats.html`), remove the standard dashboard padding/margins that constrain the chat box.
+2. Ensure the chat container takes up the full width (`w-full`) and height of the viewport (minus the top header and bottom nav), overriding the standard container limits. 
+3. On mobile (`max-width: 767px`), the chat background should touch the very edges of the screen, just like the native WhatsApp app.
+
+## Step 3: Format WA Number (Remove 'lid' format)
+1. Locate the logic where the User ID/Phone Number is displayed in TWO places:
+   - The Chat Interface header / contact list (`chats.html`).
+   - The "PENGGUNA" column in the AI Usage table (`ai_usage.html`).
+2. Currently, it displays an internal 'lid' format (e.g., `8100341928103` or similar WAHA/Baileys internal ID).
+3. Create a Jinja2 custom filter or write a Python utility function in the backend to format this. If the ID is just the phone number without the `+`, prepend `+` or `0` based on your system's locale (e.g., `+62...`). If there are suffixes like `@c.us` or `@lid`, strip them out using `.split('@')[0]` before rendering it to the UI.
+
+## Step 4: Add Date Filters to AI Usage Page
+1. In `ai_usage.html`, add a filter section at the top of the page (similar to the Dashboard filter).
+2. Include two inputs: `<input type="date" name="start_date">` and `<input type="date" name="end_date">`, and a "Terapkan" (Apply) button.
+3. Use Flexbox/Grid to ensure these inputs stack neatly on mobile and sit side-by-side on desktop.
+4. Update the backend route for the AI Usage page (e.g., `/ai-usage`) to accept `start_date` and `end_date` as GET parameters.
+5. Modify the SQLAlchemy query for the AI Usage logs to filter by the `created_at` timestamp if these dates are provided. Maintain the pagination logic alongside this filter.
+
+## Step 5: Seamless Pagination (Prevent Page Jump to Top)
+1. Currently, clicking a pagination button (like page 2, 3, or 'Berikutnya') triggers a full page reload, causing the view to jump back to the top of the page. This is a bad UX on mobile devices.
+2. Please fix this behavior for the AI Usage page (and other paginated tables). 
+3. **Preferred Solution (AJAX/Fetch):** Intercept the pagination `<a>` clicks using Vanilla JavaScript. Use the `fetch()` API to request the clicked URL, parse the returned HTML, and dynamically replace ONLY the table container and the pagination controls in the DOM without doing a full page reload.
+4. **Fallback Solution (Anchor Hash):** If AJAX is too complex for the current setup, wrap the table section in a `<div id="data-table">` and automatically append `#data-table` to the end of every pagination `href` in the Jinja template (e.g., `href="?page=2#data-table"`). This ensures the browser automatically scrolls back down to the table after the page reloads.
+
+## Step 6: Custom Brand Mark (Logo + "bot" Text)
+1. In the header or sidebar where the Telkomsel SVG logo is placed, wrap the `<img>` tag inside a Flexbox container to align items horizontally (e.g., `<div class="flex items-center gap-2">`).
+2. Directly next to the logo, add a text element for the word "bot". For example: `<span class="text-xl font-extrabold text-gray-800 tracking-tight">bot</span>`.
+3. Ensure the text is vertically centered with the logo (`items-center`). You can adjust the text color to either dark gray (`text-gray-800`) or Telkomsel Red (`text-[#ED0226]`) depending on what looks best next to the SVG.

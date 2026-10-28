@@ -93,11 +93,13 @@
          aktif. Hanya desktop (md+) — navigasi mobile memakai bottom nav. ===== -->
     <aside id="sidebar"
       class="hidden md:flex fixed inset-y-0 left-0 z-30 w-64 bg-white text-gray-700 border-r border-gray-100 flex-col">
-      <div class="h-16 flex items-center px-6 border-b border-gray-100">
-        <!-- Logo resmi Telkomsel (SVG transparan via Wikimedia Commons):
-             h-8 w-auto, latar transparan agar siap untuk mode gelap. -->
+      <div class="h-16 flex items-center gap-2 px-6 border-b border-gray-100">
+        <!-- Brand mark: logo resmi Telkomsel (SVG transparan via Wikimedia
+             Commons) + wordmark "bot" — rata vertikal, latar transparan agar
+             siap untuk mode gelap. -->
         <img src="https://upload.wikimedia.org/wikipedia/commons/0/04/Telkomsel_%282021%29.svg"
           alt="Telkomsel" class="h-8 w-auto" referrerpolicy="no-referrer" />
+        <span class="text-xl font-extrabold tracking-tight text-[#ED0226]">bot</span>
       </div>
 
       <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
@@ -304,17 +306,22 @@
             <div id="chat-agents-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5"></div>
           </div>
 
-          <!-- TAHAP 2: antarmuka chat (WhatsApp Web) untuk agent terpilih -->
-          <div id="chat-room-view" class="hidden">
-            <button type="button" id="chat-agent-back-btn"
-              class="inline-flex items-center gap-2 text-sm font-semibold text-gray-900 hover:opacity-60 transition-opacity mb-4">
-              ⬅ Kembali ke Daftar Agent
-            </button>
-            <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+          <!-- TAHAP 2: antarmuka chat (WhatsApp Web) untuk agent terpilih.
+               FULL-SCREEN: margin negatif meniadakan padding <main> sehingga
+               area chat menyentuh tepi layar seperti aplikasi native —
+               tinggi = viewport minus topbar (+ bottom nav di mobile) dan
+               baris tombol kembali. -->
+          <div id="chat-room-view" class="hidden -mx-4 -mt-4 -mb-24 md:-mx-6 md:-mt-6 md:-mb-6">
+            <div class="px-4 md:px-6 pt-3 pb-2">
+              <button type="button" id="chat-agent-back-btn"
+                class="inline-flex items-center gap-2 text-sm font-semibold text-gray-900 hover:opacity-60 transition-opacity">
+                ⬅ Kembali ke Daftar Agent
+              </button>
+            </div>
+            <div class="bg-white overflow-hidden flex flex-col h-[calc(100vh-10.25rem)] min-h-[420px] md:h-[calc(100vh-7.25rem)] md:min-h-[480px]">
             <!-- Grid: 1 kolom (mobile) / 3 kolom (md) / 4 kolom (lg).
-                 Tinggi mengikuti viewport dikurangi topbar + padding main
-                 (+ bottom nav di mobile). -->
-            <div id="chat-layout" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 h-[calc(100vh-17rem)] min-h-[420px] md:h-[calc(100vh-12rem)] md:min-h-[480px]">
+                 flex-1: mengisi seluruh sisa tinggi kartu. -->
+            <div id="chat-layout" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 flex-1 min-h-0">
 
               <!-- ===== PANE KIRI: daftar kontak / pengguna ===== -->
               <div id="chat-list-pane"
@@ -548,11 +555,34 @@
             <p class="text-sm font-serif italic text-gray-500 mt-1">Pemakaian token &amp; estimasi biaya seluruh agent.</p>
           </div>
 
+          <!-- FILTER TANGGAL: membatasi tabel log pada rentang created_at.
+               "Terapkan" memicu fetchAiUsage() ulang dari halaman 1. -->
+          <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+              <div>
+                <label for="ai-usage-filter-start" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Mulai Tanggal</label>
+                <input id="ai-usage-filter-start" type="date"
+                  class="w-full rounded-xl border-0 bg-slate-100 px-4 py-2.5 text-sm text-gray-900 focus:ring-2 focus:ring-red-600 focus:bg-white outline-none transition-colors" />
+              </div>
+              <div>
+                <label for="ai-usage-filter-end" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Sampai Tanggal</label>
+                <input id="ai-usage-filter-end" type="date"
+                  class="w-full rounded-xl border-0 bg-slate-100 px-4 py-2.5 text-sm text-gray-900 focus:ring-2 focus:ring-red-600 focus:bg-white outline-none transition-colors" />
+              </div>
+              <div class="flex md:justify-end">
+                <button id="ai-usage-filter-apply" type="button"
+                  class="w-full md:w-auto inline-flex items-center justify-center gap-2 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-sm shadow-red-600/30 px-6 py-2.5 text-[13px] uppercase tracking-widest font-semibold transition-all">
+                  Terapkan <span aria-hidden="true">→</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- Ringkasan: 3 kartu statistik bulan/hari ini -->
           <div id="ai-usage-stats" class="grid grid-cols-1 md:grid-cols-3 gap-6"></div>
 
           <!-- Log pemakaian terbaru -->
-          <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+          <div id="ai-usage-table-card" class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
             <div class="px-8 py-6 border-b border-gray-100">
               <h3 class="font-extrabold tracking-tighter text-black">Log Pemakaian</h3>
               <p class="text-xs font-serif italic text-gray-500 mt-0.5">100 balasan AI terakhir dari semua agent.</p>
@@ -581,7 +611,7 @@
 
         <!-- VIEW: ADMIN MANAGEMENT (superadmin) -->
         <section id="view-admins" class="view hidden">
-          <div class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+          <div id="admins-table-card" class="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
             <div class="px-8 py-6 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
               <h3 class="font-extrabold tracking-tighter text-black">Daftar Admin</h3>
               <button id="btn-add-admin"
@@ -674,14 +704,8 @@
       </div>
     </nav>
 
-    <!-- ===== MASKOT CHATBOT (dekoratif) =====
-         Robot kecil yang melayang pelan di kanan bawah — memberi kesan
-         aplikasi "hidup". Mobile: di atas bottom nav; desktop: di pojok.
-         Non-interaktif & di bawah modal; animasi di style.css. -->
-    <div id="floating-mascot" aria-hidden="true"
-      class="pointer-events-none select-none fixed bottom-20 right-4 md:bottom-6 md:right-6 z-30 w-14 h-14 rounded-full bg-red-600 text-white flex items-center justify-center text-3xl shadow-lg shadow-red-600/40 ring-4 ring-white/70">
-      🤖
-    </div>
+    <!-- Maskot chatbot dihapus: dianggap mengganggu fokus & menutupi konten
+         di layar kecil. -->
   </div>
 
   <!-- ==========================================================
@@ -847,8 +871,8 @@
     </div>
   </div>
 
-  <!-- Kontainer notifikasi toast — digeser dari maskot (kanan-24) & bottom nav -->
-  <div id="toast-container" class="fixed bottom-24 right-20 md:bottom-6 md:right-24 z-50 space-y-2 w-80 max-w-[calc(100vw-7rem)]"></div>
+  <!-- Kontainer notifikasi toast — di atas bottom nav pada mobile -->
+  <div id="toast-container" class="fixed bottom-24 right-4 md:bottom-6 md:right-6 z-50 space-y-2 w-80 max-w-[calc(100vw-2rem)]"></div>
 
   <!-- Urutan pemuatan penting: api -> router -> app -->
   <script src="{{ url_for('static', filename='js/api.js') }}"></script>
