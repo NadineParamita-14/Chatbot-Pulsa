@@ -1985,7 +1985,7 @@ async function renderAgentWahaDevices(agentId) {
       <div class="px-8 py-6 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 class="font-extrabold tracking-tighter text-black">Perangkat WhatsApp Tertaut</h3>
-          <p class="text-xs font-serif italic text-gray-500 mt-0.5">
+          <p class="text-xs text-gray-500 mt-0.5">
             Nomor WhatsApp yang melayani agent ini — status diperbarui saat form dibuka.
           </p>
         </div>
