@@ -118,6 +118,80 @@ tbody tr {
 }
 
 /* ---------------------------------------------------------------------
+ * DARK MODE (toggle matahari/bulan di topbar; class "dark" pada <html>)
+ * Strategi: utility Tailwind di HTML/JS tidak diduplikasi dengan varian
+ * dark: — cukup DITIMPA selektif di sini. Selektor `html.dark .kelas`
+ * ber-spesifisitas lebih tinggi daripada utility tunggal, jadi menang
+ * tanpa !important.
+ * -------------------------------------------------------------------- */
+html.dark body {
+  background-color: #0b1120; /* slate-950 */
+  color: #e2e8f0;
+}
+
+/* --- Permukaan: kartu, sidebar, topbar, modal, kepala tabel, input --- */
+html.dark .bg-white { background-color: #111827; }   /* gray-900  */
+html.dark .bg-slate-50,
+html.dark .bg-gray-50 { background-color: #0f172a; } /* slate-900 */
+html.dark .bg-slate-100,
+html.dark .bg-gray-100 { background-color: #1e293b; }/* slate-800 */
+
+/* --- Teks --- */
+html.dark .text-gray-900,
+html.dark .text-gray-800,
+html.dark .text-slate-800,
+html.dark .text-slate-700,
+html.dark .text-gray-700,
+html.dark .text-black { color: #e5e7eb; }
+html.dark .text-slate-600,
+html.dark .text-gray-600,
+html.dark .text-slate-500,
+html.dark .text-gray-500 { color: #94a3b8; }
+html.dark .text-slate-400,
+html.dark .text-gray-400 { color: #64748b; }
+
+/* --- Garis & pembatas --- */
+html.dark .border-gray-100,
+html.dark .border-slate-200,
+html.dark .border-gray-200 { border-color: #1f2937; }
+html.dark .border-slate-300,
+html.dark .border-gray-300 { border-color: #374151; }
+html.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+html.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]) { border-color: #1f2937; }
+
+/* --- State hover utility (baris tabel, tombol) -> latar transparan --- */
+html.dark .hover\:bg-gray-50:hover,
+html.dark .hover\:bg-slate-50:hover,
+html.dark .hover\:bg-gray-100:hover,
+html.dark .hover\:bg-slate-100:hover,
+html.dark .hover\:bg-gray-200:hover { background-color: rgba(148, 163, 184, 0.12); }
+html.dark .hover\:bg-red-50:hover { background-color: rgba(239, 68, 68, 0.15); }
+
+/* Kembali gelap saat input filter mendapat fokus (focus:bg-white) */
+html.dark .focus\:bg-white:focus { background-color: #0f172a; }
+
+/* --- Navigasi: bottom nav kaca gelap; item aktif/hover sidebar merah redup --- */
+html.dark #bottom-nav { background-color: rgba(17, 24, 39, 0.9); }
+html.dark .nav-link.bg-red-50 { background-color: rgba(239, 68, 68, 0.12); }
+html.dark .nav-link.hover\:bg-red-50:hover { background-color: rgba(239, 68, 68, 0.15); }
+
+/* --- Jendela chat ala WhatsApp: latar & gelembung versi gelap --- */
+html.dark .chat-bg {
+  background-color: #0b141a;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+}
+/* Gelembung keluar hijau (#d9fdd3) -> hijau WhatsApp dark; teksnya sudah
+   mengikuti override teks global di atas */
+html.dark [class*="d9fdd3"] { background-color: #005c4b; }
+
+/* --- Logo brand: chip putih agar wordmark gelap tetap terbaca --- */
+html.dark .brand-logo {
+  background-color: #ffffff;
+  border-radius: 10px;
+  padding: 3px 8px;
+}
+
+/* ---------------------------------------------------------------------
  * AKSESIBILITAS: hargai preferensi pengguna yang mematikan animasi
  * -------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {

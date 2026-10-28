@@ -531,8 +531,12 @@ async function renderDashboardCharts() {
   const res = await Api.get("/dashboard/charts", dashboardFilterParams());
   const { models, users } = res.data; // models = undefined untuk role admin (RBAC)
 
-  // Tipografi chart mengikuti UI (Plus Jakarta Sans)
-  Chart.defaults.font.family = "Plus Jakarta Sans, sans-serif";
+  // Tipografi & warna chart mengikuti UI (Poppins) dan tema aktif
+  // (label/legenda terang di mode gelap, gelap di mode terang)
+  Chart.defaults.font.family = "Poppins, sans-serif";
+  Chart.defaults.color = document.documentElement.classList.contains("dark")
+    ? "#cbd5e1"
+    : "#111827";
 
   if (dashboardCharts.models) dashboardCharts.models.destroy();
   if (dashboardCharts.users) dashboardCharts.users.destroy();
@@ -2490,6 +2494,28 @@ async function deleteAdmin(admin) {
 }
 
 // =====================================================================
+// TEMA: dark mode / light mode (toggle topbar, tersimpan localStorage)
+// Class "dark" pada <html> dipakai Tailwind (darkMode: "class") dan
+// style.css (override selektor html.dark). Skrip inline di <head> sudah
+// memasang class sebelum render — di sini tinggal sinkronkan ikon.
+// =====================================================================
+function applyTheme(dark) {
+  document.documentElement.classList.toggle("dark", dark);
+  const moon = document.getElementById("icon-moon");
+  const sun = document.getElementById("icon-sun");
+  if (moon && sun) {
+    // Terang -> tampil bulan (klik untuk gelap); gelap -> tampil matahari
+    moon.classList.toggle("hidden", dark);
+    sun.classList.toggle("hidden", !dark);
+  }
+}
+
+/** Sinkronkan ikon toggle dengan tema yang sudah dipasang <head>. */
+function initTheme() {
+  applyTheme(document.documentElement.classList.contains("dark"));
+}
+
+// =====================================================================
 // INIT: pasang semua event listener & jalankan router pertama kali
 // =====================================================================
 document.addEventListener("DOMContentLoaded", () => {
@@ -2520,6 +2546,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Logout
   document.getElementById("logout-btn").addEventListener("click", handleLogout);
+
+  // Tema: toggle dark/light + simpan pilihan pengguna
+  initTheme();
+  document.getElementById("theme-toggle").addEventListener("click", () => {
+    const dark = !document.documentElement.classList.contains("dark");
+    applyTheme(dark);
+    localStorage.setItem("theme", dark ? "dark" : "light");
+  });
 
   // Tutup modal lewat tombol/elemen bertanda data-close-modal
   document.querySelectorAll("[data-close-modal]").forEach((el) => {
