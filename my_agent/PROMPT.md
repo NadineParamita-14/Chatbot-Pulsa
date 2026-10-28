@@ -2068,3 +2068,36 @@ Please implement the following UI/UX changes across the Jinja2 templates (using 
 ## Step 4: Chatbot-Themed Empty States
 1. Locate empty states in the app (e.g., when "Riwayat Chat" is empty, or "WhatsApp Session" has no assigned agent).
 2. Replace the generic "Tidak ada data" text with a chatbot-themed message and an icon. For example: "💤 Bot sedang istirahat. Belum ada aktivitas di sini." or "🤖 Bot siap menerima tugas."
+
+# Context
+We are completely revamping the Flask Admin Panel's UI to match the "Telkomsel" corporate brand identity. This requires implementing their specific color palette, clean typography, and an official transparent logo that is ready for both light and dark mode implementations.
+
+# Task
+Please execute the following UI/UX changes across the layout templates (e.g., `base.html`, `dashboard.html`) and CSS/Tailwind configuration.
+
+## Step 1: Telkomsel Color Palette
+1. Remove the old pink/magenta mesh gradient background completely.
+2. Implement the new brand colors. If using Tailwind CSS, extend the theme, or apply these hex codes directly:
+   - **Primary Brand (Red):** `#ED0226` (Use for primary buttons like "Selengkapnya", active sidebar links, and accents).
+   - **Button Hover (Dark Red):** `#B8021E`.
+   - **Background (Main Body):** `#F9FAFB` (Very light gray) for the app background.
+   - **Background (Cards/Sidebar):** `#FFFFFF` (Clean white) with subtle shadows.
+   - **Text (Headings):** `#111827` (Almost black) for high contrast.
+   - **Text (Body):** `#4B5563` (Medium gray).
+
+## Step 2: Typography
+1. Telkomsel uses clean, geometric sans-serif fonts. Import `Inter` or `Plus Jakarta Sans` from Google Fonts in the `<head>` of `base.html`.
+2. Apply this font to the entire `<body>`.
+3. Ensure headings (`h1`, `h2`, `h3`) use a bold weight (`font-bold` or `800`) to mimic Telkomsel's strong typography style (like the "Tukarkan Telkomsel Poin" text).
+
+## Step 3: Official Transparent Logo Integration
+1. Locate the sidebar header / top navbar where the current "BOT CUSTOMER SERVICE" text/logo is placed.
+2. Replace it with an `<img>` tag pointing to the official Telkomsel SVG logo with a transparent background. 
+3. Use this direct Wikimedia Commons URL for a reliable, high-quality transparent SVG:
+   `https://upload.wikimedia.org/wikipedia/commons/4/41/Telkomsel_2021.svg`
+4. Apply sizing classes to the logo (e.g., `h-8 w-auto` or `max-height: 35px; width: auto;`).
+5. Ensure the logo container has a transparent background so it integrates flawlessly if we implement a Dark Mode toggle later.
+
+## Step 4: Spacing and Cleanliness
+1. Mimic Telkomsel's web design by ensuring there is ample padding (`p-6` or `p-8`) inside the white cards.
+2. Remove any unnecessary borders; rely on subtle drop shadows (`shadow-sm` or `shadow-md`) to separate the white cards from the light gray background.
