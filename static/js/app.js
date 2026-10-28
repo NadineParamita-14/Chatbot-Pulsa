@@ -2154,18 +2154,41 @@ async function renderAiUsage() {
 /** Ambil data pemakaian AI lalu render 3 kartu ringkasan + tabel log
  *  (terpaginasi 10 baris/halaman). Tabel log bisa disaring rentang tanggal
  *  (start_date/end_date) — ringkasan bulan berjalan tetap global. */
-const aiUsageState = { page: 1, startDate: "", endDate: "" };
+const aiUsageState = { page: 1, startDate: "", endDate: "", loaded: false };
 
 async function fetchAiUsage(page = aiUsageState.page) {
   const statsEl = document.getElementById("ai-usage-stats");
   const tbody = document.getElementById("ai-usage-tbody");
-  setLoading(statsEl);
-  setLoading(tbody);
+  const pagEl = document.getElementById("ai-usage-pagination");
+
+  if (!aiUsageState.loaded) {
+    // Muat pertama kali masuk view: spinner penuh di ringkasan & tabel.
+    setLoading(statsEl);
+    setLoading(tbody);
+  } else {
+    // Pindah halaman: JANGAN kosongkan konten. tbody yang menyusut selama
+    // loading membuat tinggi dokumen menyempit sesaat sehingga browser
+    // menjepit scroll ke atas ("balik ke paling atas"). Cukup redupkan
+    // tabel & kunci interaksi — tinggi tetap, posisi scroll dipertahankan.
+    tbody.style.opacity = "0.45";
+    tbody.style.pointerEvents = "none";
+    if (pagEl) pagEl.style.pointerEvents = "none"; // cegah klik ganda
+  }
 
   const params = { page, per_page: 10 };
   if (aiUsageState.startDate) params.start_date = aiUsageState.startDate;
   if (aiUsageState.endDate) params.end_date = aiUsageState.endDate;
-  const res = await Api.get("/ai-usage", params);
+
+  let res;
+  try {
+    res = await Api.get("/ai-usage", params);
+  } finally {
+    // Selalu pulihkan interaksi meski request gagal (error ditangani
+    // pemanggil lewat toast).
+    tbody.style.opacity = "";
+    tbody.style.pointerEvents = "";
+    if (pagEl) pagEl.style.pointerEvents = "";
+  }
   aiUsageState.page = res.meta ? res.meta.page : 1;
   const { summary, logs } = res.data;
 
@@ -2229,6 +2252,7 @@ async function fetchAiUsage(page = aiUsageState.page) {
   // Tanpa scrollTarget: posisi scroll dipertahankan persis saat pindah
   // halaman — kontrol paginasi ada di bawah kartu, jadi pengguna tetap
   // berada di tempat yang sama (tinggi tabel konstan, 10 baris/halaman).
+  aiUsageState.loaded = true; // render pertama selesai
   renderPagination(
     document.getElementById("ai-usage-pagination"),
     res.meta,
