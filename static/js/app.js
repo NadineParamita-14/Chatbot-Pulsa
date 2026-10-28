@@ -2326,18 +2326,22 @@ async function renderAdmins(page = adminsState.page) {
 
   // Sel "Akses Agent": superadmin -> "Semua Agent" (implisit);
   // admin -> nama agent yang ditugaskan (pivot), atau "—" bila belum ada.
+  // Sel "Akses Agent": superadmin -> "Semua Agent" (implisit); admin ->
+  // nama agent yang ditugaskan (pivot), atau "Belum ditugaskan" bila kosong.
+  // whitespace-nowrap di semua badge: teks tidak patah baris di kolom sempit
+  // (mobile) — tabel meluap & digeser via wrapper overflow-x-auto.
   const agentAccessCell = (a) => {
     if (a.role === "superadmin") {
-      return `<span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Semua Agent</span>`;
+      return `<span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 whitespace-nowrap">Semua Agent</span>`;
     }
     if (a.agent_access && a.agent_access.length) {
       return a.agent_access
         .map(
-          (g) => `<span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-600">${esc(g.name)}</span>`
+          (g) => `<span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-600 whitespace-nowrap">${esc(g.name)}</span>`
         )
         .join(" ");
     }
-    return `<span class="text-slate-400 text-xs">— belum ditugaskan —</span>`;
+    return `<span class="inline-block text-xs text-slate-400 whitespace-nowrap">Belum ditugaskan</span>`;
   };
 
   tbody.innerHTML = admins.length
