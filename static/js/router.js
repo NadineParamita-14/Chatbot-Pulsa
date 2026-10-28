@@ -65,13 +65,15 @@ function showView(viewId) {
 }
 
 /** Tandai link navigasi (sidebar desktop & bottom nav mobile) sesuai route
- *  aktif. Tema Telkomsel: item aktif merah — latar red-50, teks red-600,
- *  dan garis aksen merah di tepi kiri (elemen sidebar; bottom nav ikut
- *  menerima kelas warna, garisnya tak tampil karena tak punya border-l). */
+ *  aktif. Tema Telkomsel: item aktif merah — latar red-50 + garis aksen
+ *  merah di tepi kiri untuk SIDEBAR saja. Bottom nav mobile hanya mengubah
+ *  warna ikon (text-red-600) — tanpa latar, agar tampak bersih seperti
+ *  navigasi aplikasi native. */
 function setActiveNav(name) {
   document.querySelectorAll("[data-route]").forEach((link) => {
     const isActive = link.dataset.route === name;
-    link.classList.toggle("bg-red-50", isActive);
+    const isBottomNav = !!link.closest("#bottom-nav");
+    link.classList.toggle("bg-red-50", isActive && !isBottomNav);
     link.classList.toggle("text-red-600", isActive);
     link.classList.toggle("border-red-600", isActive);
     link.classList.toggle("text-gray-600", !isActive);
