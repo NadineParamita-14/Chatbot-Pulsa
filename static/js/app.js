@@ -2226,11 +2226,13 @@ async function fetchAiUsage(page = aiUsageState.page) {
         .join("")
     : emptyRow(7, "💤 Bot belum melakukan percakapan — pemakaian AI akan tercatat di sini.");
 
+  // Tanpa scrollTarget: posisi scroll dipertahankan persis saat pindah
+  // halaman — kontrol paginasi ada di bawah kartu, jadi pengguna tetap
+  // berada di tempat yang sama (tinggi tabel konstan, 10 baris/halaman).
   renderPagination(
     document.getElementById("ai-usage-pagination"),
     res.meta,
-    fetchAiUsage,
-    { scrollTarget: document.getElementById("ai-usage-table-card") }
+    fetchAiUsage
   );
 }
 
