@@ -687,6 +687,9 @@ def dashboard_stats():
         {
             "full_name": (c.user.full_name if c.user else None) or "Tidak dikenal",
             "platform_id": c.user.platform_id if c.user else "-",
+            # Nomor WA asli hasil resolve LID (kolom username) — agar tabel
+            # dashboard menampilkan kontak rapi, bukan LID internal.
+            "username": c.user.username if c.user else None,
             "channel": c.user.channel if c.user else "-",
             "agent_id": c.agent_id,
             "input": (c.input or "")[:100],

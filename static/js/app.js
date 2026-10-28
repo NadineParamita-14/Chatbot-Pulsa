@@ -70,6 +70,22 @@ function formatPlatformId(raw, channel) {
   return isWa ? `+${id}` : id;
 }
 
+/**
+ * Pilih identitas kontak terbaik utk ditampilkan:
+ * - WhatsApp: utamakan nomor WA ASLI hasil resolve LID (backend menyimpannya
+ *   di kolom `username` via WAHA contacts — LID internal WA bukan nomor
+ *   telepon). Fallback ke platform_id bila belum ter-resolve.
+ * - Telegram: platform_id (chat ID).
+ */
+function displayContactId(u) {
+  if (!u) return "";
+  const realWa = String(u.username || "").trim();
+  if (u.channel === "whatsapp" && /^\d+$/.test(realWa)) {
+    return formatPlatformId(realWa, "whatsapp");
+  }
+  return formatPlatformId(u.platform_id, u.channel);
+}
+
 /** Badge pill berwarna untuk semua kolom status (gaya modern SaaS:
  *  emerald = sukses/paid/aktif, amber = pending/unpaid, rose = gagal). */
 function statusBadge(status) {
@@ -491,7 +507,7 @@ async function renderDashboard() {
           (c) => `
         <tr class="hover:bg-slate-50 transition-colors">
           <td class="px-5 py-3 font-semibold text-slate-800">${esc(c.full_name)}</td>
-          <td class="px-5 py-3 font-mono text-xs text-slate-500">${esc(formatPlatformId(c.platform_id, c.channel))}</td>
+          <td class="px-5 py-3 font-mono text-xs text-slate-500">${esc(displayContactId(c))}</td>
           <td class="px-5 py-3">${statusBadge(c.channel)}</td>
           <td class="px-5 py-3"><span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-600">${esc(c.agent_id)}</span></td>
           <td class="px-5 py-3 text-slate-600 max-w-xs truncate" title="${esc(c.input)}">${esc(c.input)}</td>
@@ -837,7 +853,7 @@ function renderChatUserList() {
             <span class="text-[10px] text-slate-400 whitespace-nowrap">${formatTime(u.last_message_at)}</span>
           </div>
           <div class="flex items-center justify-between gap-2">
-            <p class="text-xs text-slate-500 font-mono truncate">${esc(formatPlatformId(u.platform_id, u.channel))}</p>
+            <p class="text-xs text-slate-500 font-mono truncate">${esc(displayContactId(u))}</p>
             <span class="flex items-center gap-1 flex-shrink-0">
               ${channelBadge}
               ${u.user_id !== chatsState.activeId ? unreadBadgeHTML(u.unread_count) : ""}
@@ -913,7 +929,7 @@ async function loadChatConversation(userId) {
   const name = conv.full_name || conv.username || `User ${conv.platform_id}`;
   const channelLabel = conv.channel === "whatsapp" ? "WhatsApp" : "Telegram";
   document.getElementById("chat-header-name").textContent = name;
-  document.getElementById("chat-header-id").textContent = `${channelLabel} · ${formatPlatformId(conv.platform_id, conv.channel)}`;
+  document.getElementById("chat-header-id").textContent = `${channelLabel} · ${displayContactId(conv)}`;
   document.getElementById("chat-header-avatar").textContent = name.charAt(0).toUpperCase();
 
   // Status Human Takeover user ini -> UI toggle & input
@@ -2253,7 +2269,7 @@ async function fetchAiUsage(page = aiUsageState.page) {
           (l) => `
         <tr class="hover:bg-gray-50 transition-colors">
           <td class="px-8 py-4 text-slate-500 whitespace-nowrap">${formatDateTime(l.created_at)}</td>
-          <td class="px-5 py-4 font-mono text-xs">${esc(formatPlatformId(l.platform_id))}</td>
+          <td class="px-5 py-4 font-mono text-xs">${esc(displayContactId(l))}</td>
           <td class="px-5 py-4 font-medium text-gray-900">${esc(l.agent_id)}</td>
           <td class="px-5 py-4">
             <span class="inline-flex items-center bg-gray-50 text-gray-600 rounded-full px-3 py-1 text-xs">${esc(l.model_name)}</span>

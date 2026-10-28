@@ -1557,8 +1557,16 @@ def get_ai_usage_logs(
     """
     session = SessionLocal()
     try:
-        query = session.query(AiUsageLog).order_by(
-            AiUsageLog.created_at.desc(), AiUsageLog.id.desc()
+        query = (
+            session.query(
+                AiUsageLog,
+                User.username.label("real_username"),
+                User.channel.label("user_channel"),
+            )
+            # Outerjoin utk menampilkan nomor WA asli (bukan LID internal):
+            # users.platform_id UNIQUE -> join 1:1, paginasi tetap akurat.
+            .outerjoin(User, User.platform_id == AiUsageLog.platform_id)
+            .order_by(AiUsageLog.created_at.desc(), AiUsageLog.id.desc())
         )
         if start_dt is not None:
             query = query.filter(AiUsageLog.created_at >= start_dt)
@@ -1583,16 +1591,20 @@ def get_ai_usage_logs(
         rows = query.all()
         items = [
             {
-                "id": r.id,
-                "agent_id": r.agent_id,
-                "platform_id": r.platform_id,
-                "model_name": r.model_name,
-                "input_tokens": r.input_tokens,
-                "output_tokens": r.output_tokens,
-                "total_cost": float(r.total_cost or 0.0),
-                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "id": log.id,
+                "agent_id": log.agent_id,
+                "platform_id": log.platform_id,
+                # Nomor WA asli hasil resolve LID (kolom username users) +
+                # channel — dipakai frontend utk menampilkan kontak rapi.
+                "username": real_username,
+                "channel": user_channel,
+                "model_name": log.model_name,
+                "input_tokens": log.input_tokens,
+                "output_tokens": log.output_tokens,
+                "total_cost": float(log.total_cost or 0.0),
+                "created_at": log.created_at.isoformat() if log.created_at else None,
             }
-            for r in rows
+            for (log, real_username, user_channel) in rows
         ]
         return (items, meta) if meta is not None else items
     finally:
