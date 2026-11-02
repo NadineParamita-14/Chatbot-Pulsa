@@ -319,6 +319,35 @@ class DcbApiLog(Base):
     )
 
 
+# ==========================================
+# 7b. Tabel Kuota Token per Pelanggan (Cost Control)
+# Satu baris per nomor WhatsApp pelanggan — penghitung token AI
+# (prompt + completion) pada jendela bergulir 1 jam. Dipakai webhook
+# WhatsApp untuk membatasi pemakaian: kuota habis -> AI dilewati dan
+# pelanggan menerima pesan peringatan sampai penghitung ter-reset
+# otomatis (instruksi PROMPT.md: Token Rate Limiting).
+# Tabel baru: dibuat otomatis oleh init_db() (Base.metadata.create_all).
+# ==========================================
+class CustomerTokenUsage(Base):
+    __tablename__ = "customer_token_usage"
+
+    # Nomor pelanggan sebagai PK: satu pelanggan = satu penghitung.
+    # Kunci yang dipakai webhook = users.platform_id channel WhatsApp
+    # (stabil per kontak — tidak berubah saat resolve LID -> nomor asli),
+    # sehingga kuota tak bisa dielakkan lewat pergantian identitas.
+    wa_number = Column(String(64), primary_key=True)
+
+    # Total token terpakai pada jendela berjalan (sejak last_reset)
+    tokens_used = Column(Integer, nullable=False, default=0)
+
+    # Mulai jendela 1 jam berjalan; lewat 1 jam -> direset saat pesan
+    # berikutnya diterima (lazy reset, tanpa scheduler).
+    last_reset = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+
 # =====================================================================
 # MIGRASI RINGAN: users multi-channel (Telegram + WhatsApp via WAHA)
 # create_all TIDAK mengubah tabel yang sudah ada, jadi kolom/constraint

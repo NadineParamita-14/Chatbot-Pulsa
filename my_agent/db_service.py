@@ -10,6 +10,7 @@ from models import (
     AiUsageLog,
     ChatHistory,
     ChatSession,
+    CustomerTokenUsage,
     DcbApiLog,
     Document,
     RagDocument,
@@ -1253,6 +1254,91 @@ def log_ai_usage(agent_id: str, platform_id: str, model_name: str,
     except Exception as e:
         session.rollback()
         print(f"[AI USAGE] Gagal mencatat pemakaian token: {e}")
+    finally:
+        session.close()
+
+
+# =====================================================================
+# KUOTA TOKEN PER PELANGGAN (Cost Control / Token Rate Limiting)
+# Instruksi PROMPT.md: batasi biaya API dari spam pelanggan WhatsApp.
+# Satu penghitung customer_token_usage per nomor; kuota habis -> AI
+# dilewati & pelanggan menerima pesan peringatan. Penghitung di-reset
+# otomatis 1 jam setelah jendela dimulai (lazy reset di pesan berikutnya,
+# tanpa scheduler). Kunci = users.platform_id (stabil per kontak).
+# =====================================================================
+TOKEN_QUOTA_WINDOW = timedelta(hours=1)
+
+
+def get_or_create_token_quota(wa_number: str) -> int:
+    """Ambil total token terpakai pelanggan pada jendela 1 jam berjalan.
+
+    Fetch-or-create baris customer_token_usage utk `wa_number`. Bila jendela
+    1 jam sejak last_reset sudah terlewati, tokens_used di-reset ke 0 dan
+    last_reset dimulai ulang dari sekarang — inilah "reset otomatis 1 jam".
+    Mengembalikan tokens_used terkini (0 bila baru di-reset/dibuat).
+
+    Fail-open (return 0) mengikuti pola is_user_blocked: bot jangan berhenti
+    melayani hanya karena tabel kuota bermasalah.
+    """
+    wa_number = (wa_number or "").strip()
+    if not wa_number:
+        return 0
+    session = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        row = (
+            session.query(CustomerTokenUsage)
+            .filter_by(wa_number=wa_number)
+            .first()
+        )
+        if row is None:
+            session.add(CustomerTokenUsage(wa_number=wa_number, tokens_used=0,
+                                           last_reset=now))
+            session.commit()
+            return 0
+        if row.last_reset is None or now >= row.last_reset + TOKEN_QUOTA_WINDOW:
+            row.tokens_used = 0
+            row.last_reset = now
+            session.commit()
+            return 0
+        return int(row.tokens_used or 0)
+    except Exception as e:
+        session.rollback()
+        print(f"[TOKEN QUOTA] Gagal membaca kuota {wa_number}: {e}")
+        return 0
+    finally:
+        session.close()
+
+
+def add_token_usage(wa_number: str, tokens: int) -> None:
+    """Akumulasi token aktual (prompt + completion) satu balasan AI ke
+    penghitung kuota pelanggan. Baris belum ada -> dibuat langsung dengan
+    nilai tokens. Best-effort: kegagalan tidak boleh mempengaruhi balasan
+    (mengikuti pola log_ai_usage)."""
+    wa_number = (wa_number or "").strip()
+    tokens = int(tokens or 0)
+    if not wa_number or tokens <= 0:
+        return
+    session = SessionLocal()
+    try:
+        row = (
+            session.query(CustomerTokenUsage)
+            .filter_by(wa_number=wa_number)
+            .first()
+        )
+        if row is None:
+            row = CustomerTokenUsage(
+                wa_number=wa_number,
+                tokens_used=tokens,
+                last_reset=datetime.now(timezone.utc),
+            )
+            session.add(row)
+        else:
+            row.tokens_used = int(row.tokens_used or 0) + tokens
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        print(f"[TOKEN QUOTA] Gagal mencatat pemakaian {wa_number}: {e}")
     finally:
         session.close()
 

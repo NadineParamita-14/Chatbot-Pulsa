@@ -77,6 +77,7 @@ from models import (  # noqa: E402
 
 # Logika bisnis order (verifikasi + potong stok) dibagi pakai dengan bot
 from db_service import (  # noqa: E402
+    add_token_usage,
     check_order_status,
     create_new_agent_config,
     create_new_order,
@@ -93,6 +94,7 @@ from db_service import (  # noqa: E402
     get_chatted_users,
     get_chat_history as fetch_agent_chat_history,  # hindari bentrok nama route
     get_last_10_history,
+    get_or_create_token_quota,
     get_or_create_user,
     get_products_json_string,
     log_ai_usage,
@@ -1306,6 +1308,19 @@ WEBHOOK_OFFLINE_MESSAGE = (
     "Silakan hubungi kami kembali nanti."
 )
 
+# Token Rate Limiting (Cost Control) per pelanggan WhatsApp: batas token AI
+# (prompt + completion) per jendela 1 jam utk menahan biaya API dari spam.
+# Lewat batas -> AI dilewati & pelanggan menerima TOKEN_LIMIT_MESSAGE
+# (lihat pra-cek 3 di whatsapp_webhook); penghitung reset otomatis 1 jam
+# (get_or_create_token_quota). Konfigurabel lewat .env, default 8000.
+MAX_TOKENS_PER_HOUR = int(os.getenv("MAX_TOKENS_PER_HOUR", "8000"))
+
+# Pesan peringatan kuota habis — hardcode sesuai instruksi PROMPT.md
+TOKEN_LIMIT_MESSAGE = (
+    "Mohon maaf, Anda telah mencapai batas interaksi pintar untuk saat ini. "
+    "Sesi Anda akan otomatis direset dalam waktu 1 jam ke depan."
+)
+
 # Folder gambar lokal yang bisa dikirim bot ke pengguna (via sendPhoto).
 # LLM hanya "menyebut" nama file lewat tag [GAMBAR: x] — Flask yang
 # benar-benar mengirimkan filenya (lihat _send_agent_reply / Postman).
@@ -2440,6 +2455,14 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
         )
+
+        # Cost Control: akumulasi token aktual balasan ini (prompt +
+        # completion, akumulasi seluruh round tool) ke kuota 1 jam
+        # pelanggan — sumber pra-cek 3 di webhook WhatsApp. Channel lain
+        # (Telegram) tidak dibatasi sesuai instruksi PROMPT.md.
+        if user.channel == CHANNEL_WHATSAPP:
+            add_token_usage(user.platform_id,
+                            prompt_tokens + completion_tokens)
     except Exception as e:
         print(f"[WEBHOOK] Gagal memproses AI ({agent_id}): {e}")
         bot_reply = f"Maaf, terjadi kendala pada layanan: {e}"
@@ -2754,6 +2777,19 @@ def whatsapp_webhook():
         # Pra-cek 2: Human Takeover -> AI diam, admin membalas manual
         if is_user_in_manual_mode(platform_id, CHANNEL_WHATSAPP):
             print(f"[WEBHOOK:whatsapp/{agent_id}] {platform_id} dalam manual mode -> AI diabaikan.")
+            continue
+
+        # Pra-cek 3 (Cost Control): kuota token 1 jam pelanggan habis ->
+        # AI TIDAK dipanggil; kirim peringatan hardcode via WAHA lalu
+        # selesai (return 200 di akhir agar WAHA tidak mengulang update).
+        # Kunci = platform_id (stabil per kontak); penghitung sudah di-reset
+        # otomatis oleh get_or_create_token_quota bila jendela 1 jam habis.
+        tokens_used = get_or_create_token_quota(platform_id)
+        if tokens_used >= MAX_TOKENS_PER_HOUR:
+            print(f"[WEBHOOK:whatsapp/{agent_id}] {platform_id} mencapai batas "
+                  f"token ({tokens_used}/{MAX_TOKENS_PER_HOUR}) -> AI dilewati, "
+                  f"kirim peringatan kuota.")
+            _send_waha_text(raw_from, TOKEN_LIMIT_MESSAGE, session=session_name)
             continue
 
         # Catat/ambil user lalu proses otak AI milik agent hasil routing;
