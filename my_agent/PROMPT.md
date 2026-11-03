@@ -2140,28 +2140,3 @@ Please implement the following updates step-by-step:
 1. In the header or sidebar where the Telkomsel SVG logo is placed, wrap the `<img>` tag inside a Flexbox container to align items horizontally (e.g., `<div class="flex items-center gap-2">`).
 2. Directly next to the logo, add a text element for the word "bot". For example: `<span class="text-xl font-extrabold text-gray-800 tracking-tight">bot</span>`.
 3. Ensure the text is vertically centered with the logo (`items-center`). You can adjust the text color to either dark gray (`text-gray-800`) or Telkomsel Red (`text-[#ED0226]`) depending on what looks best next to the SVG.
-
-# Context
-We need to implement a Token Rate Limiting (Cost Control) feature per customer to prevent excessive API billing from spam. If a customer exhausts their token limit, the bot must block further AI generation, send a warning message, and automatically reset their token count after 1 hour.
-
-# Task
-Please implement this token limitation logic in the backend:
-
-## Step 1: Database Model for Tracking Usage
-1. Create a new model `CustomerTokenUsage` with columns: 
-   - `wa_number` (String, Primary Key or Unique Index)
-   - `tokens_used` (Integer, default 0)
-   - `last_reset` (DateTime, default to current UTC time)
-
-## Step 2: Logic in the Webhook / Message Handler
-1. Define a configurable limit (e.g., `MAX_TOKENS_PER_HOUR = 8000` in `.env` or as a constant).
-2. When a new WhatsApp message arrives, fetch or create the `CustomerTokenUsage` record for that `wa_number`.
-3. **Time-Check:** If the current time is greater than `last_reset + 1 hour`, reset `tokens_used = 0` and update `last_reset = current time`.
-4. **Limit-Check:** If `tokens_used >= MAX_TOKENS_PER_HOUR`, skip calling the AI model. Instead, immediately send this hardcoded response via WAHA API to the user:
-   *"Mohon maaf, Anda telah mencapai batas interaksi pintar untuk saat ini. Sesi Anda akan otomatis direset dalam waktu 1 jam ke depan."*
-   Then, terminate the request (return 200 OK so WAHA doesn't retry).
-
-## Step 3: Accumulating Tokens
-1. If the user is under the limit, proceed with generating the AI response.
-2. Extract the actual token usage from the AI model's response metadata (Prompt Tokens + Completion Tokens).
-3. Add this amount to the user's `tokens_used` column and commit the changes to the database.
