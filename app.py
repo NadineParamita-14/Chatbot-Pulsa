@@ -1654,18 +1654,21 @@ def _split_reply_bubbles(text: str, agent_id: str) -> list:
 # markdown tabel/heading/bold-ganda — output mentah model tampil berantakan
 # (kolom tabel lumer jadi satu baris, tanda ** muncul literal).
 # _format_whatsapp_text mengonversi markdown umum ke format native WA
-# (*bold*, bullet •, daftar per baris) lalu dipanggil per bubble SEBELUM
-# sendText — HANYA jalur balasan AI; pesan manual admin, notifikasi
-# pembayaran, dan pesan hardcoded sistem tidak diubah.
+# (*bold*, bullet •, blok vertikal per item) lalu dipanggil per bubble
+# SEBELUM sendText — HANYA jalur balasan AI; pesan manual admin,
+# notifikasi pembayaran, dan pesan hardcoded sistem tidak diubah.
 WA_TABLE_ROW_RE = re.compile(r"^\s*\|(.*)\|\s*$")
 WA_TABLE_SEP_RE = re.compile(r"^:?-{3,}:?$")
 
 
 def _convert_markdown_tables(text: str) -> str:
-    """Ubah blok tabel markdown (| kolom |) jadi daftar bullet rata WA.
+    """Ubah blok tabel markdown (| kolom |) jadi blok vertikal rata WA.
 
-    Baris pertama blok = header -> dicetak tebal; tiap baris data jadi
-    satu bullet "• sel1 – sel2 – sel3". Baris pemisah |---|---| dibuang.
+    Tabel >=2 kolom: baris pertama = header; tiap baris data jadi SATU
+    blok — kolom pertama dicetak tebal sebagai judul item, kolom sisanya
+    jadi bullet "• Header: isi" per baris — bukan satu baris panjang
+    "a – b – c" yang sulit dibaca. Tabel 1 kolom: header tebal + bullet
+    isi per baris. Baris pemisah |---|---| dibuang.
     """
     lines = text.splitlines()
     out, i = [], 0
@@ -1682,8 +1685,23 @@ def _convert_markdown_tables(text: str) -> str:
                                  for c in cells):
                 block.append(cells)
             i += 1
-        if block:
-            out.append("*" + " – ".join(block[0]) + "*")
+        if not block:
+            continue
+        header = block[0]
+        if len(header) >= 2:
+            for row in block[1:]:
+                row = list(row) + [""] * (len(header) - len(row))
+                if row[0]:
+                    out.append(f"*{row[0]}*")
+                for head, cell in zip(header[1:], row[1:]):
+                    if cell:
+                        out.append(f"• {head}: {cell}" if head
+                                   else f"• {cell}")
+                out.append("")
+            while out and out[-1] == "":
+                out.pop()
+        else:
+            out.append("*" + " – ".join(header) + "*")
             out.extend("• " + " – ".join(row) for row in block[1:])
     return "\n".join(out)
 
@@ -1691,7 +1709,9 @@ def _convert_markdown_tables(text: str) -> str:
 def _format_whatsapp_text(text: str) -> str:
     """Rapikan satu bubble balasan AI menjadi format native WhatsApp.
 
-    - tabel markdown -> header tebal + bullet per baris (kolom dipisah "–")
+    - tabel markdown -> blok vertikal per baris data (kolom pertama jadi
+      judul tebal, kolom lain jadi bullet "• Header: isi"); tabel 1 kolom
+      -> header tebal + bullet per baris
     - heading markdown ### -> *teks tebal*
     - **teks** / __teks__ -> *teks* (bold satu bintang ala WhatsApp)
     - bullet markdown "- item" -> "• item"
