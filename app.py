@@ -1650,6 +1650,69 @@ def _split_reply_bubbles(text: str, agent_id: str) -> list:
     return [single] if single else []
 
 
+# Perapian balasan AI utk WhatsApp (teks polos): WhatsApp TIDAK mendukung
+# markdown tabel/heading/bold-ganda — output mentah model tampil berantakan
+# (kolom tabel lumer jadi satu baris, tanda ** muncul literal).
+# _format_whatsapp_text mengonversi markdown umum ke format native WA
+# (*bold*, bullet •, daftar per baris) lalu dipanggil per bubble SEBELUM
+# sendText — HANYA jalur balasan AI; pesan manual admin, notifikasi
+# pembayaran, dan pesan hardcoded sistem tidak diubah.
+WA_TABLE_ROW_RE = re.compile(r"^\s*\|(.*)\|\s*$")
+WA_TABLE_SEP_RE = re.compile(r"^:?-{3,}:?$")
+
+
+def _convert_markdown_tables(text: str) -> str:
+    """Ubah blok tabel markdown (| kolom |) jadi daftar bullet rata WA.
+
+    Baris pertama blok = header -> dicetak tebal; tiap baris data jadi
+    satu bullet "• sel1 – sel2 – sel3". Baris pemisah |---|---| dibuang.
+    """
+    lines = text.splitlines()
+    out, i = [], 0
+    while i < len(lines):
+        if not WA_TABLE_ROW_RE.match(lines[i]):
+            out.append(lines[i])
+            i += 1
+            continue
+        block = []
+        while i < len(lines) and WA_TABLE_ROW_RE.match(lines[i]):
+            cells = [c.strip() for c in
+                     WA_TABLE_ROW_RE.match(lines[i]).group(1).split("|")]
+            if cells and not all(WA_TABLE_SEP_RE.match(c or "---")
+                                 for c in cells):
+                block.append(cells)
+            i += 1
+        if block:
+            out.append("*" + " – ".join(block[0]) + "*")
+            out.extend("• " + " – ".join(row) for row in block[1:])
+    return "\n".join(out)
+
+
+def _format_whatsapp_text(text: str) -> str:
+    """Rapikan satu bubble balasan AI menjadi format native WhatsApp.
+
+    - tabel markdown -> header tebal + bullet per baris (kolom dipisah "–")
+    - heading markdown ### -> *teks tebal*
+    - **teks** / __teks__ -> *teks* (bold satu bintang ala WhatsApp)
+    - bullet markdown "- item" -> "• item"
+    - sisa tabel rata-spasi (spasi ganda) -> spasi tunggal; baris kosong
+      berlebih -> maksimal satu; spasi menjuntai di ujung baris dibuang.
+    """
+    if not text:
+        return text
+    out = _convert_markdown_tables(text)
+    out = re.sub(r"\*\*\*(.+?)\*\*\*", r"*\1*", out)
+    out = re.sub(r"\*\*(.+?)\*\*", r"*\1*", out)
+    out = re.sub(r"__(.+?)__", r"*\1*", out)
+    out = re.sub(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$", r"*\1*",
+                 out, flags=re.MULTILINE)
+    out = re.sub(r"^([ \t]*)[-*+][ \t]+", r"\1• ", out, flags=re.MULTILINE)
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = "\n".join(line.rstrip() for line in out.splitlines())
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    return out.strip()
+
+
 def _build_webhook_tools(agent_id: str, user: User) -> list:
     """Tool Gemini per agent — port dari bot.py (pulsa) & bot_cs.py (CS).
     Agent lain (baru) berjalan tanpa tool (Q&A murni)."""
@@ -2532,7 +2595,10 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
         for i, part in enumerate(message_parts):
             if i > 0:
                 time.sleep(CS_REPLY_BUBBLE_DELAY_SECONDS)
-            _send_waha_text(target, part, session=waha_session)
+            # Markdown -> format native WhatsApp sebelum sendText (lihat
+            # _format_whatsapp_text) supaya balasan tidak tampil berantakan.
+            _send_waha_text(target, _format_whatsapp_text(part),
+                            session=waha_session)
         for filename in image_files:
             _send_waha_file(target, BOT_IMAGES_DIR / filename, session=waha_session)
     else:

@@ -832,6 +832,13 @@ CS_AGENT_PROMPT_V12_MARKER = "ATURAN MEMORI"
 # otomatis ditimpa saat start (idempoten).
 CS_AGENT_PROMPT_V13_MARKER = "BUBBLE GANDA SAAT EKSEKUSI UNREG"
 
+# Marker versi v14 (format pesan WhatsApp native): reply_message wajib
+# format teks polos WhatsApp — bold satu bintang (*teks*), bullet "•",
+# daftar per baris, DILARANG tabel markdown/rata-spasi (tampil berantakan
+# di WhatsApp karena tidak mendukung markdown tabel). Instans v0-v13
+# otomatis ditimpa saat start (idempoten).
+CS_AGENT_PROMPT_V14_MARKER = "FORMAT PESAN WHATSAPP"
+
 CS_AGENT_SYSTEM_PROMPT = r"""<role>
 Anda adalah asisten Customer Service (CS) virtual untuk PT Pass Indonesia. Tugas Anda adalah merespons keluhan dan pertanyaan pelanggan terkait layanan digital (seperti GOFIT, HISTERIA, dan Digmagz) dengan gaya bahasa yang luwes, empatik, proaktif, dan natural (human-like). Anda dilarang keras membalas dengan gaya robotik atau memberikan template kaku yang berulang-ulang tanpa memperhatikan konteks.
 </role>
@@ -859,6 +866,10 @@ Anda adalah asisten Customer Service (CS) virtual untuk PT Pass Indonesia. Tugas
 11. **DAFTAR KODE LAYANAN RESMI (KATALOG):**
    DIGMAGZ, DIGMAGZ36, DIGMAGZ37, GOFIT, GOFIT1, GOFIT3, GOFIT5, HISTERIA, HISTERIA3, HISTERIA7, HISTERIA30, LEGA1, LEGA2, LEGA5, LEGA30, TUUTAP, TUUTAP1, TUUTAP3, TUUTAP7. (Jika kode di luar daftar ini, beritahu bahwa layanan di luar wewenang kami).
 12. **BUBBLE GANDA SAAT EKSEKUSI UNREG (WAJIB):** Untuk intent `PROCESS_SMS_STAGE3_EXECUTE`, `reply_message` WAJIB terdiri dari DUA bagian dipisah tag `[JEDA]` — bagian 1: konfirmasi singkat bahwa proses sedang berjalan (contoh: "Baik, Kak. Tunggu sebentar ya..."), bagian 2: hasil akhirnya ("Nah, layanan X sudah berhasil kami hentikan..."). Sistem mengirimnya sebagai 2 pesan terpisah dengan jeda. JANGAN gunakan tag `[JEDA]` untuk intent lain.
+13. **FORMAT PESAN WHATSAPP (WAJIB):** `reply_message` dikirim ke pelanggan sebagai TEKS POLOS WhatsApp. DILARANG KERAS memakai tabel markdown (`| kolom |`), tabel rata-spasi, heading markdown (`###`), atau bold ganda (`**teks**`) — semuanya TIDAK didukung WhatsApp dan tampil berantakan. WAJIB: bold memakai SATU tanda bintang (`*teks*`); daftar ditulis SATU item SATU baris dengan awalan angka ("1. ") atau bullet "•"; pasangan data dipisah tanda "–". Contoh katalog yang rapi:
+   *Katalog Layanan:*
+   1. *DIGMAGZ* — kode DIGMAGZ, DIGMAGZ36, DIGMAGZ37 (Rp1.000 – Rp2.000)
+   2. *GOFIT* — kode GOFIT, GOFIT1, GOFIT3, GOFIT5 (Rp1.000 – Rp5.000)
 </guidelines>
 
 <response_templates>
@@ -866,7 +877,7 @@ Anda adalah asisten Customer Service (CS) virtual untuk PT Pass Indonesia. Tugas
   "Halo {customer_name}! 👋 Terima kasih sudah menghubungi CS PT Pass Indonesia. Ada yang bisa kami bantu hari ini? Silakan balas dengan angka untuk memilih menu: 1. Informasi Layanan, 2. Keluhan Pelanggan, 3. Informasi Lainnya, 4. Redeem Point"
 
 - **Skenario 2: Edukasi Unreg Mandiri (Tahap 1)**
-  "Maaf banget ya atas ketidaknyamanannya. 🙏 Untuk menghentikan layanan [NAMA_LAYANAN], kamu bisa coba secara mandiri dulu ya. Balas SMS dari 99790 tersebut dengan mengetik **UNREG [NAMA_LAYANAN]** atau hubungi **\*500\*939#**. Dicoba dulu ya, Kak!"
+  "Maaf banget ya atas ketidaknyamanannya. 🙏 Untuk menghentikan layanan [NAMA_LAYANAN], kamu bisa coba secara mandiri dulu ya. Balas SMS dari 99790 tersebut dengan mengetik *UNREG [NAMA_LAYANAN]* atau dial \*500\*939#. Dicoba dulu ya, Kak!"
 
 - **Skenario 3: Konfirmasi Persetujuan (Tahap 2)**
   "Waduh, maaf ya kalau cara mandirinya masih terkendala. Biar aku bantu cabut langsung dari sistem kami ya. Tapi sebelum itu, apakah Kak {customer_name} yakin ingin menonaktifkan layanan [NAMA_LAYANAN] ini sekarang?"
@@ -928,32 +939,32 @@ def seed_cs_agent():
 
 
 def ensure_cs_agent_prompt_upgrade():
-    """Angkat system prompt cs_agent lama ke versi v13 (bubble ganda unreg).
+    """Angkat system prompt cs_agent lama ke versi v14 (format WA native).
 
     Dipanggil saat aplikasi start (app.py) SEBELUM ensure_toxic_rule_in_prompts().
     Template memuat placeholder {customer_name}/{phone_number} yang diisi
     per pesan oleh _format_cs_prompt (app.py), jadi JANGAN di-.format() di sini.
-    Pemicu = CS_AGENT_PROMPT_V13_MARKER (aturan "BUBBLE GANDA SAAT EKSEKUSI
-    UNREG" yang hanya ada mulai v13), sehingga semua instans lebih lama —
+    Pemicu = CS_AGENT_PROMPT_V14_MARKER (aturan "FORMAT PESAN WHATSAPP" yang
+    hanya ada mulai v14), sehingga semua instans lebih lama —
     v0 (CS pulsa), v1 (DCB), v2 (katalog), v3 (JSON), v4 (redaksi), v5/v6
     (unreg 2 tahap), v7 (unreg 3 tahap), v8 (anti-halusinasi PIN), v9
     (anti-klaim sukses palsu), v10 (format MSISDN), v11 (nomor WA otomatis,
-    dicabut), v12 (memori + nomor eksplisit) — ikut tertimpa ke v13. Aturan
-    toxic yang sempat terhapus karena penimpaan dipasang ulang otomatis
-    oleh ensure_toxic_rule_in_prompts() yang dijalankan sesudahnya. Prompt
-    yang sudah memuat marker v13 dibiarkan (idempoten & aman dipanggil
-    berulang). Best-effort: kegagalan DB tidak boleh menggagalkan start
-    aplikasi.
+    dicabut), v12 (memori + nomor eksplisit), v13 (bubble ganda unreg) —
+    ikut tertimpa ke v14. Aturan toxic yang sempat terhapus karena
+    penimpaan dipasang ulang otomatis oleh ensure_toxic_rule_in_prompts()
+    yang dijalankan sesudahnya. Prompt yang sudah memuat marker v14
+    dibiarkan (idempoten & aman dipanggil berulang). Best-effort: kegagalan
+    DB tidak boleh menggagalkan start aplikasi.
     """
     session = SessionLocal()
     try:
         agent = session.query(AgentConfig).filter_by(agent_id="cs_agent").first()
-        if agent is None or CS_AGENT_PROMPT_V13_MARKER in (agent.system_prompt or ""):
+        if agent is None or CS_AGENT_PROMPT_V14_MARKER in (agent.system_prompt or ""):
             return
         agent.system_prompt = CS_AGENT_SYSTEM_PROMPT
         session.commit()
-        print("[OK] System prompt cs_agent di-upgrade ke versi bubble "
-              "ganda unreg (v13).")
+        print("[OK] System prompt cs_agent di-upgrade ke versi format "
+              "WhatsApp native (v14).")
     except Exception as e:
         session.rollback()
         print(f"✗ Gagal upgrade system prompt cs_agent: {e}")
