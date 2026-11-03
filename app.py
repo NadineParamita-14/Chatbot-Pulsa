@@ -1962,14 +1962,27 @@ def _resolve_wa_number(user: User, session_name: str = None) -> None:
 
 
 def _wa_customer_identity(user: User) -> str:
-    """Identitas pelanggan untuk sapaan/konteks chatbot CS.
+    """Nomor WA pelanggan untuk konteks internal model (SYSTEM NOTE).
 
-    Instruksi PROMPT.md: pelanggan WhatsApp memakai NOMOR WA asli (hasil
-    resolve LID yang tersimpan di kolom username; fallback platform_id
-    bila belum ter-resolve) — bukan nama. Pelanggan Telegram tetap
-    memakai nama lengkapnya."""
+    Kini HANYA dipakai sebagai info tersembunyi nomor pengirim chat —
+    BUKAN untuk sapaan (lihat _wa_customer_greeting_name). Mengembalikan
+    NOMOR WA asli (hasil resolve LID di kolom username; fallback
+    platform_id bila belum ter-resolve)."""
     if user.channel == CHANNEL_WHATSAPP:
         return (user.username or "").strip() or (user.platform_id or "Kak")
+    return user.full_name or "Kak"
+
+
+def _wa_customer_greeting_name(user: User) -> str:
+    """Nama sapaan pelanggan untuk placeholder {customer_name} di prompt.
+
+    Revisi format balasan: sapaan WA tidak boleh memakai nomor HP ("Halo
+    Kak!" — bukan "Halo 628xxx!" yang jarang konsisten dan terasa robotik),
+    jadi pelanggan WhatsApp SELALU disapa "Kak"; nomornya tetap diberikan
+    ke model lewat {phone_number} dan SYSTEM NOTE. Pelanggan Telegram
+    tetap memakai nama lengkapnya."""
+    if user.channel == CHANNEL_WHATSAPP:
+        return "Kak"
     return user.full_name or "Kak"
 
 
@@ -2332,14 +2345,15 @@ def _process_agent_message(agent_id: str, user: User, user_text: str,
     # Konteks dinamis pelanggan (multi-agent dinamis): placeholder
     # {customer_name}/{phone_number} pada prompt agent MANA PUN diisi
     # otomatis dari identitas user — tidak lagi dikunci ke cs_agent.
-    # Pelanggan WA memakai NOMOR WA asli (hasil resolve LID di kolom
-    # username) sebagai identitas; Telegram memakai nama lengkap.
+    # Sapaan pelanggan WA selalu "Kak" (bukan nomor HP — lihat
+    # _wa_customer_greeting_name); nomor WA asli tetap diberikan lewat
+    # {phone_number}. Telegram memakai nama lengkap.
     if "{customer_name}" in base_prompt or "{phone_number}" in base_prompt:
         wa_number = ((user.username or "").strip()
                      if user.channel == CHANNEL_WHATSAPP else "") or user.platform_id
         base_prompt = _format_cs_prompt(
             base_prompt,
-            customer_name=_wa_customer_identity(user),
+            customer_name=_wa_customer_greeting_name(user),
             phone_number=wa_number,
         )
 

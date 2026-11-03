@@ -839,6 +839,14 @@ CS_AGENT_PROMPT_V13_MARKER = "BUBBLE GANDA SAAT EKSEKUSI UNREG"
 # otomatis ditimpa saat start (idempoten).
 CS_AGENT_PROMPT_V14_MARKER = "FORMAT PESAN WHATSAPP"
 
+# Marker versi v15 (sapaan konsisten tanpa nomor HP): pelanggan WA selalu
+# disapa "Kak" — DILARANG menyapa memakai nomor HP ("Halo 628xxx!").
+# {customer_name} kini sudah diisi "Kak" oleh backend
+# (_wa_customer_greeting_name di app.py); aturan ini mengunci perilaku
+# model agar tidak kabur antara "Kak" dan nomor. Instans v0-v14 otomatis
+# ditimpa saat start (idempoten).
+CS_AGENT_PROMPT_V15_MARKER = "SAPAAN KONSISTEN TANPA NOMOR HP"
+
 CS_AGENT_SYSTEM_PROMPT = r"""<role>
 Anda adalah asisten Customer Service (CS) virtual untuk PT Pass Indonesia. Tugas Anda adalah merespons keluhan dan pertanyaan pelanggan terkait layanan digital (seperti GOFIT, HISTERIA, dan Digmagz) dengan gaya bahasa yang luwes, empatik, proaktif, dan natural (human-like). Anda dilarang keras membalas dengan gaya robotik atau memberikan template kaku yang berulang-ulang tanpa memperhatikan konteks.
 </role>
@@ -846,7 +854,7 @@ Anda adalah asisten Customer Service (CS) virtual untuk PT Pass Indonesia. Tugas
 <konteks_sistem>
 - Pelanggan : {customer_name}
 - Nomor WA  : {phone_number}
-(Gunakan nama pelanggan untuk menyapa. Nomor WA pengirim chat terdeteksi otomatis — itu HANYA nomor pengirim, BUKAN nomor layanan yang terdaftar; untuk unreg/cek status, nomor HP terdaftar WAJIB ditanyakan bila belum disebutkan pelanggan).
+(Sapa pelanggan dengan "Kak" — JANGAN PERNAH menyapa memakai nomor HP pelanggan. Nomor WA pengirim chat terdeteksi otomatis — itu HANYA nomor pengirim, BUKAN nomor layanan yang terdaftar; untuk unreg/cek status, nomor HP terdaftar WAJIB ditanyakan bila belum disebutkan pelanggan).
 </konteks_sistem>
 
 <guidelines>
@@ -870,6 +878,7 @@ Anda adalah asisten Customer Service (CS) virtual untuk PT Pass Indonesia. Tugas
    *Katalog Layanan:*
    1. *DIGMAGZ* — kode DIGMAGZ, DIGMAGZ36, DIGMAGZ37 (Rp1.000 – Rp2.000)
    2. *GOFIT* — kode GOFIT, GOFIT1, GOFIT3, GOFIT5 (Rp1.000 – Rp5.000)
+14. **SAPAAN KONSISTEN TANPA NOMOR HP (WAJIB):** Sapa pelanggan dengan "Kak" atau sebut NAMA pelanggan bila tersedia — DILARANG KERAS menyapa atau memanggil pelanggan memakai nomor HP/nomor WA (contoh terlarang: "Halo 6285156893448!"). Nomor HP hanya dipakai untuk konteks teknis unreg/cek status, tidak pernah untuk sapaan.
 </guidelines>
 
 <response_templates>
@@ -880,7 +889,7 @@ Anda adalah asisten Customer Service (CS) virtual untuk PT Pass Indonesia. Tugas
   "Maaf banget ya atas ketidaknyamanannya. 🙏 Untuk menghentikan layanan [NAMA_LAYANAN], kamu bisa coba secara mandiri dulu ya. Balas SMS dari 99790 tersebut dengan mengetik *UNREG [NAMA_LAYANAN]* atau dial \*500\*939#. Dicoba dulu ya, Kak!"
 
 - **Skenario 3: Konfirmasi Persetujuan (Tahap 2)**
-  "Waduh, maaf ya kalau cara mandirinya masih terkendala. Biar aku bantu cabut langsung dari sistem kami ya. Tapi sebelum itu, apakah Kak {customer_name} yakin ingin menonaktifkan layanan [NAMA_LAYANAN] ini sekarang?"
+  "Waduh, maaf ya kalau cara mandirinya masih terkendala. Biar aku bantu cabut langsung dari sistem kami ya. Tapi sebelum itu, apakah Kak yakin ingin menonaktifkan layanan [NAMA_LAYANAN] ini sekarang?"
 
 - **Skenario 4: Eksekusi Unreg oleh CS (Tahap 3 — HANYA jika tool `unsubscribe_service` membalik "status": "success"; jika tool gagal/error, sampaikan kegagalannya sesuai alasan sistem, JANGAN pakai template ini). Dua bagian dipisah [JEDA]:**
   "Baik, Kak. Tunggu sebentar ya... [JEDA] Nah, layanan [NAMA_LAYANAN] kamu sudah berhasil kami hentikan untuk nomor [NOMOR_HP]. Kamu tidak perlu khawatir pulsa terpotong lagi ya."
@@ -939,32 +948,33 @@ def seed_cs_agent():
 
 
 def ensure_cs_agent_prompt_upgrade():
-    """Angkat system prompt cs_agent lama ke versi v14 (format WA native).
+    """Angkat system prompt cs_agent lama ke versi v15 (sapaan konsisten).
 
     Dipanggil saat aplikasi start (app.py) SEBELUM ensure_toxic_rule_in_prompts().
     Template memuat placeholder {customer_name}/{phone_number} yang diisi
     per pesan oleh _format_cs_prompt (app.py), jadi JANGAN di-.format() di sini.
-    Pemicu = CS_AGENT_PROMPT_V14_MARKER (aturan "FORMAT PESAN WHATSAPP" yang
-    hanya ada mulai v14), sehingga semua instans lebih lama —
+    Pemicu = CS_AGENT_PROMPT_V15_MARKER (aturan "SAPAAN KONSISTEN TANPA
+    NOMOR HP" yang hanya ada mulai v15), sehingga semua instans lebih lama —
     v0 (CS pulsa), v1 (DCB), v2 (katalog), v3 (JSON), v4 (redaksi), v5/v6
     (unreg 2 tahap), v7 (unreg 3 tahap), v8 (anti-halusinasi PIN), v9
     (anti-klaim sukses palsu), v10 (format MSISDN), v11 (nomor WA otomatis,
-    dicabut), v12 (memori + nomor eksplisit), v13 (bubble ganda unreg) —
-    ikut tertimpa ke v14. Aturan toxic yang sempat terhapus karena
-    penimpaan dipasang ulang otomatis oleh ensure_toxic_rule_in_prompts()
-    yang dijalankan sesudahnya. Prompt yang sudah memuat marker v14
-    dibiarkan (idempoten & aman dipanggil berulang). Best-effort: kegagalan
-    DB tidak boleh menggagalkan start aplikasi.
+    dicabut), v12 (memori + nomor eksplisit), v13 (bubble ganda unreg),
+    v14 (format WA native) — ikut tertimpa ke v15. Aturan toxic yang
+    sempat terhapus karena penimpaan dipasang ulang otomatis oleh
+    ensure_toxic_rule_in_prompts() yang dijalankan sesudahnya. Prompt yang
+    sudah memuat marker v15 dibiarkan (idempoten & aman dipanggil
+    berulang). Best-effort: kegagalan DB tidak boleh menggagalkan start
+    aplikasi.
     """
     session = SessionLocal()
     try:
         agent = session.query(AgentConfig).filter_by(agent_id="cs_agent").first()
-        if agent is None or CS_AGENT_PROMPT_V14_MARKER in (agent.system_prompt or ""):
+        if agent is None or CS_AGENT_PROMPT_V15_MARKER in (agent.system_prompt or ""):
             return
         agent.system_prompt = CS_AGENT_SYSTEM_PROMPT
         session.commit()
-        print("[OK] System prompt cs_agent di-upgrade ke versi format "
-              "WhatsApp native (v14).")
+        print("[OK] System prompt cs_agent di-upgrade ke versi sapaan "
+              "konsisten tanpa nomor HP (v15).")
     except Exception as e:
         session.rollback()
         print(f"✗ Gagal upgrade system prompt cs_agent: {e}")
