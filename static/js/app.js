@@ -636,12 +636,14 @@ async function renderDashboardCharts() {
 
 // =====================================================================
 // VIEW: CHATS — sistem dua tampilan: pilih agent -> chat per agent
-// Tahap 1    : daftar kartu agent   -> #chat-agent-view
+// Tahap 1    : daftar kartu agent   -> #chat-agent-view (superadmin saja)
 // Tahap 2    : layout 2-pane WhatsApp -> #chat-room-view
 //              Pane kiri  : kontak dari GET /chats/users/<agent_id>
 //              Pane kanan : percakapan dari GET /chats/<agent_id>/<user_id>
 // Kontak diidentifikasi lewat user_id (users.id) — mendukung pengguna
 // Telegram maupun WhatsApp (kolom channel/platform_id).
+// Role admin memegang SATU agent (penugasan superadmin di pivot RBAC):
+// langsung masuk Tahap 2 tanpa Tahap 1.
 // =====================================================================
 const chatsState = {
   agentId: null,
@@ -691,9 +693,45 @@ function formatTime(iso) {
   return d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
 }
 
-/** Entry point route #chats: selalu mulai dari daftar agent (Tahap 1). */
-function renderChats() {
+/** Entry point route #chats.
+ *  Superadmin : mulai dari daftar agent (Tahap 1) seperti biasa.
+ *  Admin      : hanya memegang satu agent penugasan — bila /api/agents
+ *               (sudah difilter RBAC) balas tepat 1 agent, langsung masuk
+ *               jendela chat agent tersebut (Tahap 2, tanpa Tahap 1). */
+async function renderChats() {
+  if (App.user && App.user.role === "superadmin") {
+    applyChatBackButtonUI(true);
+    showChatAgentPicker();
+    return;
+  }
+
+  try {
+    const res = await Api.get("/agents");
+    const agents = res.data || [];
+    if (agents.length === 1) {
+      applyChatBackButtonUI(false); // satu-satunya agent — tak ada tahap 1
+      selectChatAgent(agents[0].agent_id);
+      return;
+    }
+  } catch {
+    /* jatuh ke picker — kartu agent me-render pesan errornya sendiri */
+  }
+  // Fallback: belum ada penugasan (empty-state dari backend) atau >1 agent
+  // (butuh tombol kembali untuk berpindah antar agent).
+  applyChatBackButtonUI(true);
   showChatAgentPicker();
+}
+
+/** Visibilitas baris "⬅ Kembali ke Daftar Agent": hanya superadmin yang punya
+ *  Tahap 1 untuk kembali. Tanpa baris tersebut (role admin) tinggi kartu chat
+ *  naik 2.5rem (tinggi baris tombol) agar tetap full-screen menyentuh tepi. */
+function applyChatBackButtonUI(showBackRow) {
+  document.getElementById("chat-back-row").classList.toggle("hidden", !showBackRow);
+  const card = document.getElementById("chat-room-card");
+  card.classList.toggle("h-[calc(100vh-10.25rem)]", showBackRow);
+  card.classList.toggle("h-[calc(100vh-7.75rem)]", !showBackRow);
+  card.classList.toggle("md:h-[calc(100vh-7.25rem)]", showBackRow);
+  card.classList.toggle("md:h-[calc(100vh-4.75rem)]", !showBackRow);
 }
 
 /** Tampilkan Tahap 1 (pilih agent) dan reset seluruh state chat. */

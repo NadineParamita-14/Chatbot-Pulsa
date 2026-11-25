@@ -337,13 +337,16 @@
                tinggi = viewport minus topbar (+ bottom nav di mobile) dan
                baris tombol kembali. -->
           <div id="chat-room-view" class="hidden -mx-4 -mt-4 -mb-24 md:-mx-6 md:-mt-6 md:-mb-6">
-            <div class="px-4 md:px-6 pt-3 pb-2">
+            <!-- Baris tombol kembali: hanya superadmin (role admin langsung masuk
+                 chat room tanpa Tahap 1 — visibilitas diatur applyChatBackButtonUI) -->
+            <div id="chat-back-row" class="px-4 md:px-6 pt-3 pb-2">
               <button type="button" id="chat-agent-back-btn"
                 class="inline-flex items-center gap-2 text-sm font-semibold text-gray-900 hover:opacity-60 transition-opacity">
                 ⬅ Kembali ke Daftar Agent
               </button>
             </div>
-            <div class="bg-white overflow-hidden flex flex-col h-[calc(100vh-10.25rem)] min-h-[420px] md:h-[calc(100vh-7.25rem)] md:min-h-[480px]">
+            <div id="chat-room-card"
+              class="bg-white overflow-hidden flex flex-col h-[calc(100vh-10.25rem)] min-h-[420px] md:h-[calc(100vh-7.25rem)] md:min-h-[480px]">
             <!-- Grid: 1 kolom (mobile) / 3 kolom (md) / 4 kolom (lg).
                  flex-1: mengisi seluruh sisa tinggi kartu. -->
             <div id="chat-layout" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 flex-1 min-h-0">
