@@ -1900,7 +1900,7 @@ function openWahaPageQrModal(sessionName) {
   stopWahaPageQrPolling(); // bersihkan polling sebelumnya bila ada
 
   wahaPageQrState.session = sessionName;
-  wahaPageQrState.deadline = Date.now() + 2 * 60 * 1000; // maks 2 menit
+  wahaPageQrState.deadline = Date.now() + 5 * 60 * 1000; // maks 5 menit (engine VPS bisa lambat terbit QR)
 
   document.getElementById("waha-qr-img").classList.add("hidden");
   document.getElementById("waha-qr-img").removeAttribute("src");
@@ -2128,7 +2128,7 @@ function openWahaQrModal(agentId, sessionName) {
 
   wahaDeviceState.agentId = agentId;
   wahaDeviceState.qrSession = sessionName;
-  wahaDeviceState.qrDeadline = Date.now() + 2 * 60 * 1000; // maks 2 menit
+  wahaDeviceState.qrDeadline = Date.now() + 5 * 60 * 1000; // maks 5 menit (engine VPS bisa lambat terbit QR)
 
   document.getElementById("waha-qr-img").classList.add("hidden");
   document.getElementById("waha-qr-img").removeAttribute("src");

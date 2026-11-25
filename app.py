@@ -3753,6 +3753,24 @@ def get_waha_session_qr(session_name: str):
     if allowed is not None and session_name not in allowed:
         return err("Sesi ini bukan milik agent yang ditugaskan kepada Anda.", 403)
 
+    # Pra-cek status via /api/sessions (cepat, in-memory di WAHA): endpoint QR
+    # WAHA itu sinkron — saat sesi masih STARTING (engine sibuk boot) ia bisa
+    # menggantung >10s sampai timeout, jadi QR hanya diminta saat sesi
+    # benar-benar menampilkan QR (SCAN_QR_CODE). Sesi yang belum ada di daftar
+    # (baru dibuat) tetap dilanjutkan ke permintaan QR di bawah.
+    try:
+        lst = requests.get(
+            f"{WAHA_BASE_URL}/api/sessions", headers=_waha_headers(), timeout=10
+        )
+        live = next(
+            (s for s in (lst.json() or []) if s.get("name") == session_name), None
+        )
+        waha_status = (live or {}).get("status")
+        if waha_status and waha_status != "SCAN_QR_CODE":
+            return err(f"Sesi belum menampilkan QR (status: {waha_status}).", 404)
+    except (requests.RequestException, ValueError):
+        pass  # WAHA unreachable/rusak -> biarkan permintaan QR di bawah yg menangani
+
     try:
         # Route QR gaya API WAHA lama: /api/{session}/auth/qr — versi yang
         # terpasang TIDAK menyediakan /api/sessions/{name}/auth/qr.
@@ -3760,7 +3778,7 @@ def get_waha_session_qr(session_name: str):
             f"{WAHA_BASE_URL}/api/{session_name}/auth/qr",
             headers=_waha_headers(),
             params={"format": "image"},
-            timeout=10,
+            timeout=30,
         )
     except requests.RequestException as e:
         print(f"[WAHA] Gagal mengambil QR '{session_name}': {e}")
@@ -3784,7 +3802,17 @@ def get_waha_session_qr(session_name: str):
 
     # Belum ada QR (sesi masih loading) atau QR kedaluwarsa — kirim
     # pesan detail dari WAHA bila ada agar polling UI menampilkannya.
-    return err(body.get("message") or f"QR belum tersedia (HTTP {resp.status_code}).", 404)
+    # WAHA versi baru memakai key "error" (mis. sesi macet STARTING:
+    # "Session status is not as expected..."), versi lama "message".
+    detail = (body.get("error") or body.get("message") or "").strip()
+    if isinstance(detail, list):  # bentuk FastAPI 422: {"detail": [...]}
+        detail = "; ".join(str(x) for x in detail)
+    status = body.get("status")
+    suffix = f" (status sesi: {status})" if status else ""
+    return err(
+        f"QR belum tersedia (HTTP {resp.status_code}){suffix}"
+        + (f": {detail}" if detail else ".")
+    , 404)
 
 
 @app.route("/api/agent/<agent_id>/waha/session/<session_name>", methods=["DELETE"])
